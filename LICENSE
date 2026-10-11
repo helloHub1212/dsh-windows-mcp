@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This plugin does not bundle Windows-MCP: at runtime it launches the upstream
-package `windows-mcp` (CursorTouch/Windows-MCP, MIT) and mounts the MCP client
-bridge that ships with DeepSeek Harness. Both remain under their own licenses.
