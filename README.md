@@ -1,5 +1,7 @@
 # dsh-windows-mcp
 
+**English** · [中文](https://github.com/helloHub1212/dsh-windows-mcp/blob/main/README.zh.md)
+
 [![npm version](https://img.shields.io/npm/v/dsh-windows-mcp.svg)](https://www.npmjs.com/package/dsh-windows-mcp)
 [![CI](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml)
 
