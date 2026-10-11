@@ -1,5 +1,8 @@
 # dsh-windows-mcp
 
+[![npm version](https://img.shields.io/npm/v/dsh-windows-mcp.svg)](https://www.npmjs.com/package/dsh-windows-mcp)
+[![CI](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml)
+
 **给 [DeepSeek Harness](https://github.com/sandbaseai/deepseek-harness-handbook) 接上 Windows 桌面自动化** —— 让 DSH 的 agent 能"看见"你的屏幕并操作你的电脑。
 
 本插件把 [CursorTouch/Windows-MCP](https://github.com/CursorTouch/Windows-MCP) 接到 DSH 上，做法是**挂载 DSH 本体自带的那座 MCP 客户端桥**：不重新实现协议客户端，也不重复打包 MCP SDK。插件本身是一个 *carrier bundle*（只有补丁、没有自己的服务），agent 能用的一切能力都来自官方那座桥。
