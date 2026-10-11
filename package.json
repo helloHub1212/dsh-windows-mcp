@@ -1,0 +1,62 @@
+{
+  "name": "dsh-windows-mcp",
+  "version": "0.1.0",
+  "description": "Windows desktop automation for DeepSeek Harness — plugs CursorTouch/Windows-MCP (screenshot, UI automation, input, clipboard, processes, registry) into DSH through the official MCP client bridge.",
+  "license": "MIT",
+  "author": "dsh-windows-mcp contributors",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "model-context-protocol",
+    "windows",
+    "windows-mcp",
+    "automation",
+    "computer-use",
+    "ui-automation",
+    "screenshot"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "check": "node --check lib/index.js",
+    "dump": "node scripts/dump-config.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helloHub1212/dsh-windows-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/helloHub1212/dsh-windows-mcp/issues"
+  },
+  "homepage": "https://github.com/helloHub1212/dsh-windows-mcp#readme",
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

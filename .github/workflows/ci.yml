@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # The plugin only *runs* on Windows, but its patch file and host half are
+    # plain Node: keeping Linux in the matrix catches platform assumptions that
+    # would otherwise only show up on a contributor's machine.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dev dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Syntax check the host half
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify the packed tarball contains the patch layer
+        if: matrix.os == 'windows-latest' && matrix.node == 24
+        shell: pwsh
+        run: |
+          npm pack --pack-destination . | Out-Null
+          $tarball = Get-ChildItem *.tgz | Select-Object -First 1
+          tar -tzf $tarball.Name | Select-String -Pattern 'cordis.patch.yml|lib/index.js|package.json'

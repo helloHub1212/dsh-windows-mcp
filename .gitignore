@@ -1,0 +1,23 @@
+# --- research / build inputs, never shipped ---
+src/
+ref/
+*.zip
+*.7z
+
+# --- dump-config harness output ---
+*.dump.yml
+*-dump.yml
+
+# --- node ---
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+package-lock.json
+pnpm-lock.yaml
+
+# --- editors / os ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
