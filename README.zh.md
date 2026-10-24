@@ -99,6 +99,21 @@ Windows-MCP 本身是个 Python 程序，所以 **设置 → 插件 → dsh-wind
 
 面板上还会显示 **写入目标**：手动写入会落到哪个 `cordis.patch.yml`，也就是这个宿主启动的那个 profile（`dsh --profile web` 启动的 web 宿主同样适用）。如果本插件装在多个 profile 里、而宿主没有报告自己启动的是哪一个，插件**不会猜**：它什么都不写并直接说明——给运行 DSH 的进程设 `DSH_WINDOWS_MCP_PROFILE=<profile 名>`（或 profile 的绝对路径）再重试。
 
+### 更新 Windows-MCP，以及回退
+
+同一个面板也管上游版本，所以升级不用再手动重装依赖：
+
+- **自己检查。** 宿主启动时（以及页面要求时）插件会探测各 PyPI 镜像，取响应最快的那个读它的 `windows-mcp` 索引；结果在 `$DSH_HOME/dsh-windows-mcp.versions.json` 里缓存 6 小时，重启不会反复打网络。
+- **版本各装各的。** 每个版本通过 `UV_TOOL_DIR` 装进自己的目录：`$DSH_HOME/dsh-windows-mcp/toolchain/<版本>/windows-mcp`。激活一个版本只是重写桥那一行（同样先备份），**不需要重装**，上一版原样留在磁盘上。
+- **一键更新。** **更新到 vX** 会从能用的最快镜像下载该版本（失败自动换下一个镜像），校验可执行文件和 `dist-info` 之后再激活；面板会显示当前运行版本和它来自哪个镜像。
+- **回退同样一键。** **回退到 vPrev** 把桥指回“当前版本替换掉的那个版本”，不下载任何东西。
+
+只动插件自己管理的安装：在你安装第一个托管版本之前，桥仍然用全局 `uv tool` 装的那份；面板会标明当前生效的是 `uv-tool` 还是 `managed`。
+
+### Python 依赖的镜像加速
+
+检查阶段会用 96 KiB 的 range 读取量一遍七个候选——PyPI 官方，加上中科大、阿里云、腾讯云、华为云、南京大学、清华 TUNA——按实测吞吐量排序。安装时用最快且能用的镜像，失败就回退到下一个；同时固定 `UV_CONCURRENT_DOWNLOADS=4`、`UV_HTTP_RETRIES=3`、`UV_HTTP_TIMEOUT=600`，因为镜像会限流 uv 默认的 8 并发（HTTP 429）。对当前网络直接封锁的镜像（本机 TUNA 现在返回 403）会被排到后面而不是让安装失败；每个镜像的实测速度都显示在面板上。
+
 ## 验证
 
 ```text
@@ -248,10 +263,25 @@ npm run dump
 
 ```text
 cordis.patch.yml      集成本体：两行 insert
-lib/index.js          宿主半边：windows_mcp_doctor + 启动审计（零依赖）
-test/plugin.test.mjs  补丁合成测试 + 恶意 ctx 测试
+lib/index.js          宿主半边：路由 + windows_mcp_doctor + 启动审计（零依赖）
+lib/dependency.js     依赖状态、uv 调用封装、profile 桥行写入
+lib/pypi.js           PyPI 索引解析与版本比较（纯函数）
+lib/mirrors.js        镜像候选、限速探测与排序
+lib/installs.js       按版本隔离的工具目录 + 版本状态文件
+lib/updater.js        版本管理：检查 / 安装 / 激活 / 回退
+lib/client.js         网页半边：输入框开关 + 插件面板
+test/plugin.test.mjs  补丁合成测试 + 恶意 ctx 测试 + 面板测试
+test/update.test.mjs  版本解析、镜像排序、版本隔离与回退状态机测试
 scripts/dump-config.mjs  面向影子 profile 的合成调试脚本
 tools/                零依赖调试探针（不发布到 npm）
+```
+
+要对着真实网络和本机 profile 验证升级链路，用 `tools/update-e2e.mjs`：
+
+```powershell
+node tools/update-e2e.mjs --check          # 探测镜像并读出最新稳定版
+node tools/update-e2e.mjs --install 0.8.8  # 真下载、真激活、真改桥行
+node tools/update-e2e.mjs --rollback
 ```
 
 欢迎贡献；请保持 `lib/index.js` 无运行时依赖，并保持 `apply()` 永不抛错。

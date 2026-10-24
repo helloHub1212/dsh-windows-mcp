@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-24
+
+### Added
+
+- **Windows-MCP version management** (`lib/updater.js`, `lib/installs.js`): the
+  plugin checks the mirrors for the newest stable `windows-mcp`, installs a
+  version **side by side** under `$DSH_HOME/dsh-windows-mcp/toolchain/<version>`
+  (each version its own `UV_TOOL_DIR`, so nothing is overwritten), rewrites the
+  bridge row to the freshly installed executable, and keeps the replaced version
+  so **Roll back** switches back to it without downloading anything. The check
+  result, active/previous version and the install history are persisted in
+  `$DSH_HOME/dsh-windows-mcp.versions.json`. Checks run on boot and are cached
+  for six hours.
+- **Fast-mirror selection for the Python dependency** (`lib/mirrors.js`,
+  `lib/pypi.js`): PyPI plus the USTC, Aliyun, Tencent Cloud, Huawei Cloud,
+  Nanjing University and TUNA mirrors are probed with a 96 KiB ranged read and
+  ranked by measured throughput; the install uses the fastest working mirror and
+  falls back to the next candidate on failure.
+- On the plugin page: running version, newest version, kept versions, the
+  measured mirror speed, and **Check for updates** / **Update to vX** / **Roll
+  back to vPrev** actions, with the streamed `uv` log.
+- `tools/update-e2e.mjs`, a maintainer harness that runs the real check, install,
+  activation and rollback against this machine's profile (never published).
+
+### Changed
+
+- `createPrepare` / the prepare route now install into the managed tool root
+  through `UV_TOOL_DIR`, support a chosen `--default-index` mirror, and resolve
+  the executable from the version that was installed.
+- `uv` installs set `UV_CONCURRENT_DOWNLOADS=4`, `UV_HTTP_RETRIES=3` and
+  `UV_HTTP_TIMEOUT=600`: at uv's default of eight parallel downloads the mirrors
+  answer HTTP 429 and the install fails.
+- The bridge-row writer, the doctor report and the `/state` payload all report
+  which side is live (`managed` vs the global `uv-tool` install).
+
+### Fixed
+
+- The PyPI index parser dropped files whose link carried a `#sha256=…` fragment
+  (every wheel on a real mirror), so the newest version looked missing.
+- The version pin regex stopped at YAML punctuation but not at the backtick used
+  in the written block's prose comment.
+
 ## [0.1.0] - 2026-10-11
 
 ### Added

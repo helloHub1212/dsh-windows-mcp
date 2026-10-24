@@ -103,6 +103,21 @@ The block it writes is exactly the row documented under [Pin a local interpreter
 
 The page also shows the **Patch target**: the `cordis.patch.yml` a manual write would touch, which is the profile this host booted — including a `dsh --profile web` host. If this package sits in more than one profile and the host does not report which one it started, the plugin writes nothing and says so instead of guessing: set `DSH_WINDOWS_MCP_PROFILE=<profile name>` (or an absolute profile directory) for the process that runs DSH and retry.
 
+### Update Windows-MCP, and roll back
+
+The same page manages the upstream version, so an upgrade never means reinstalling the dependency by hand:
+
+- **It checks by itself.** On boot, and whenever the page asks, the plugin probes the PyPI mirrors, takes the fastest one that answers and reads its `windows-mcp` index. The result is cached for six hours in `$DSH_HOME/dsh-windows-mcp.versions.json`, so restarts do not hammer the network.
+- **Versions live side by side.** Every version is installed into its own tool root, `$DSH_HOME/dsh-windows-mcp/toolchain/<version>/windows-mcp`, through `UV_TOOL_DIR`. Activating a version only rewrites the bridge row (backed up, as above): no reinstall, and the previous version stays on disk.
+- **Update in one click.** **Update to vX** downloads that version from the fastest mirror that works, verifies the executable and its `dist-info`, then activates it — the panel names the running version and the mirror it came from.
+- **Roll back the same way.** **Roll back to vPrev** points the bridge back at the version the active one replaced; nothing is downloaded.
+
+Only the managed installs are touched: until you install one, the bridge keeps using the global `uv tool` installation, and the panel says which side is live (`uv-tool` vs `managed`).
+
+### Fast mirrors for the Python dependency
+
+The check measures all seven candidates — PyPI plus the USTC, Aliyun, Tencent Cloud, Huawei Cloud, Nanjing University and TUNA mirrors — with a 96 KiB ranged read, and ranks them by throughput. An install uses the fastest mirror that works and falls back to the next one when a mirror fails, with `UV_CONCURRENT_DOWNLOADS=4`, `UV_HTTP_RETRIES=3` and `UV_HTTP_TIMEOUT=600`, because mirrors rate-limit uv's default of eight parallel downloads (HTTP 429). A mirror that has blocked this network is ranked out instead of failing the install; the measured speed is shown per mirror in the panel.
+
 ## Verify
 
 ```text
@@ -298,10 +313,26 @@ Layout:
 
 ```text
 cordis.patch.yml      the integration: two insert rows
-lib/index.js          host half: windows_mcp_doctor + startup audit (no dependencies)
-test/plugin.test.mjs  patch composition + hostile-context tests
+lib/index.js          host half: routes + windows_mcp_doctor + startup audit (no dependencies)
+lib/dependency.js     dependency state, uv invocation, profile bridge-row writer
+lib/pypi.js           PyPI index parsing and version maths (pure functions)
+lib/mirrors.js        mirror candidates, ranged speed probe, ranking
+lib/installs.js       per-version tool roots and the versions state file
+lib/updater.js        version manager: check / install / activate / roll back
+lib/client.js         web half: composer switch + plugin panel
+test/plugin.test.mjs  patch composition + hostile-context + panel tests
+test/update.test.mjs  version maths, mirror ranking, isolation and rollback state machine
 scripts/dump-config.mjs  dev helper for composing against a scratch profile
 tools/                zero-dependency debug probes (not published to npm)
+```
+
+To exercise the update path for real — real mirrors, real `uv`, real profile
+write — use the e2e harness:
+
+```powershell
+node tools/update-e2e.mjs --check          # probe the mirrors, read the newest stable version
+node tools/update-e2e.mjs --install 0.8.8  # download, activate, rewrite the bridge row
+node tools/update-e2e.mjs --rollback
 ```
 
 Contributions are welcome; keep `lib/index.js` free of runtime dependencies and
