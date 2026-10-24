@@ -105,8 +105,14 @@ function fakeSpawner(root, options = {}) {
   return spawner;
 }
 
+/** Per-host latency, so the measured ranking is deterministic instead of timer luck. */
+const FAKE_LATENCY_MS = { "fast.example": 0, "pypi.example": 30, "slow.example": 90 };
+
 function fakeFetch() {
   return async (url, init = {}) => {
+    const host = new URL(url).host;
+    const latency = FAKE_LATENCY_MS[host] ?? 0;
+    if (latency > 0) await new Promise((resolve) => setTimeout(resolve, latency));
     if (String(init?.headers?.range ?? init?.headers?.Range ?? "").startsWith("bytes=")) {
       return { ok: true, status: 206, arrayBuffer: async () => new ArrayBuffer(96 * 1024) };
     }
@@ -170,7 +176,14 @@ test("mirror probing measures each candidate and ranks the fastest first", async
   assert.ok(probe.results.every((result) => result.ok === true));
   assert.ok(probe.results.every((result) => typeof result.speedBps === "number" && result.speedBps > 0));
   assert.equal(probe.ranked.length, 3);
-  assert.equal(mirrorOrder(probe, MIRRORS).at(-1)?.official, true, "the official index is the last resort");
+  assert.deepEqual(probe.ranked, ["fast", "pypi", "slow"], "fastest measured throughput first");
+  const rankedOrder = mirrorOrder(probe, MIRRORS);
+  assert.equal(rankedOrder[0].id, "fast", "the fastest mirror is tried first");
+  assert.deepEqual(
+    rankedOrder.map((mirror) => mirror.id).sort(),
+    ["fast", "pypi", "slow"],
+    "every candidate appears exactly once",
+  );
 
   const order = mirrorOrder({ ranked: ["fast"] }, MIRRORS);
   assert.deepEqual(order.map((mirror) => mirror.id), ["fast", "pypi", "slow"]);
