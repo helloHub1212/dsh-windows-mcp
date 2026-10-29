@@ -114,6 +114,15 @@ Windows-MCP 本身是个 Python 程序，所以 **设置 → 插件 → dsh-wind
 
 检查阶段会用 96 KiB 的 range 读取量一遍七个候选——PyPI 官方，加上中科大、阿里云、腾讯云、华为云、南京大学、清华 TUNA——按实测吞吐量排序。安装时用最快且能用的镜像，失败就回退到下一个；同时固定 `UV_CONCURRENT_DOWNLOADS=4`、`UV_HTTP_RETRIES=3`、`UV_HTTP_TIMEOUT=600`，因为镜像会限流 uv 默认的 8 并发（HTTP 429）。对当前网络直接封锁的镜像（本机 TUNA 现在返回 403）会被排到后面而不是让安装失败；每个镜像的实测速度都显示在面板上。
 
+### 设置页与 Star 按钮
+
+除了插件卡片上的这些，还有几个不属于卡片的小开关，集中在 **设置 → 桌面控制** —— 设置界面左边栏里新增的一页，和别的插件页并列：
+
+- **桥接** —— `toolCallTimeoutMs`、截图缩放、截图后端、上游的闪光提示层，以及桥允许排除的三个工具（`App`、`PowerShell`、`FileSystem`）。这些会写进你 profile 的 `cordis.patch.yml` 桥行（先做时间戳备份），所以 **重启 DSH 后才生效**；页面上会写明当前生效的是哪一行。
+- **更新** —— 是否在启动时自动检查新版 Windows-MCP，以及镜像策略：`auto` 用实测排序，指定镜像则固定用它（官方源始终留作最后的兜底）。
+- **关于** —— 插件版本、仓库链接，以及一个「点个 Star」按钮，点开在新标签页打开 GitHub 仓库。
+
+保存是原子的（`$DSH_HOME/dsh-windows-mcp.settings.json`）。越界的值会被夹到默认值并告知，而不是悄悄写坏；只改插件参数、不涉及桥行时不会重写补丁层。**还原** 把表单恢复成默认值。
 ## 验证
 
 ```text
@@ -269,9 +278,11 @@ lib/pypi.js           PyPI 索引解析与版本比较（纯函数）
 lib/mirrors.js        镜像候选、限速探测与排序
 lib/installs.js       按版本隔离的工具目录 + 版本状态文件
 lib/updater.js        版本管理：检查 / 安装 / 激活 / 回退
-lib/client.js         网页半边：输入框开关 + 插件面板
+lib/settings.js       用户设置：校验、落盘、桥行往返
+lib/client.js         网页半边：输入框开关 + 插件面板 + 设置页
 test/plugin.test.mjs  补丁合成测试 + 恶意 ctx 测试 + 面板测试
 test/update.test.mjs  版本解析、镜像排序、版本隔离与回退状态机测试
+test/settings.test.mjs 设置校验、桥行往返、设置路由测试
 scripts/dump-config.mjs  面向影子 profile 的合成调试脚本
 tools/                零依赖调试探针（不发布到 npm）
 ```

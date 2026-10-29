@@ -1,6 +1,6 @@
 {
   "name": "dsh-windows-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Windows desktop automation for DeepSeek Harness — plugs CursorTouch/Windows-MCP (screenshot, UI automation, input, clipboard, processes, registry) into DSH through the official MCP client bridge.",
   "license": "MIT",
   "author": "dsh-windows-mcp contributors",

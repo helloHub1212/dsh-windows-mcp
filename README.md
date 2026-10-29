@@ -118,6 +118,15 @@ Only the managed installs are touched: until you install one, the bridge keeps u
 
 The check measures all seven candidates — PyPI plus the USTC, Aliyun, Tencent Cloud, Huawei Cloud, Nanjing University and TUNA mirrors — with a 96 KiB ranged read, and ranks them by throughput. An install uses the fastest mirror that works and falls back to the next one when a mirror fails, with `UV_CONCURRENT_DOWNLOADS=4`, `UV_HTTP_RETRIES=3` and `UV_HTTP_TIMEOUT=600`, because mirrors rate-limit uv's default of eight parallel downloads (HTTP 429). A mirror that has blocked this network is ranked out instead of failing the install; the measured speed is shown per mirror in the panel.
 
+### Settings page and the star button
+
+Everything above, plus a few knobs that do not belong on a plugin card, lives in **Settings → Desktop** — a new entry in the settings sidebar, next to the other plugins' pages:
+
+- **Bridge** — `toolCallTimeoutMs`, the screenshot scale, the capture backend, upstream's flash overlay, and the three tools the bridge may exclude (`App`, `PowerShell`, `FileSystem`). These are written into the bridge row of your profile's `cordis.patch.yml` (timestamped backup first), so **they apply after DSH restarts**; the page states which row is in effect.
+- **Updates** — whether the plugin checks for a newer Windows-MCP on boot, and the mirror policy: `auto` keeps the measured ranking, an explicit mirror pins it, and the official index always stays as the last resort.
+- **About** — the plugin version, the repository link, and a **Star** button that opens the project on GitHub in a new tab.
+
+Saving is atomic (`$DSH_HOME/dsh-windows-mcp.settings.json`). A value out of range is clamped to its default and reported instead of being written silently, and a change that leaves the bridge row untouched does not rewrite the patch layer at all. **Revert** restores the defaults in the form.
 ## Verify
 
 ```text
@@ -319,9 +328,11 @@ lib/pypi.js           PyPI index parsing and version maths (pure functions)
 lib/mirrors.js        mirror candidates, ranged speed probe, ranking
 lib/installs.js       per-version tool roots and the versions state file
 lib/updater.js        version manager: check / install / activate / roll back
-lib/client.js         web half: composer switch + plugin panel
+lib/settings.js       user settings: validation, storage, bridge round-trip
+lib/client.js         web half: composer switch, plugin panel, settings page
 test/plugin.test.mjs  patch composition + hostile-context + panel tests
 test/update.test.mjs  version maths, mirror ranking, isolation and rollback state machine
+test/settings.test.mjs  settings validation, bridge round-trip, settings route
 scripts/dump-config.mjs  dev helper for composing against a scratch profile
 tools/                zero-dependency debug probes (not published to npm)
 ```

@@ -449,6 +449,53 @@ test("client styles keep the pill unfilled and use theme tokens only", () => {
   assert.ok(!/#[0-9a-fA-F]{3,8}\b/u.test(css), "no literal colours, the theme must supply them");
 });
 
+test("client bundle registers the settings page with a star link", () => {
+  const { exportsObject } = loadClientBundle();
+  assert.equal(exportsObject.__internals.SETTINGS_SLOT, "settings.section");
+  assert.equal(exportsObject.__internals.SETTINGS_PATH, "/dsh-windows-mcp/settings");
+  assert.equal(exportsObject.__internals.REPO_URL, "https://github.com/helloHub1212/dsh-windows-mcp");
+  const navIcon = exportsObject.__internals.SETTINGS_NAV_ICON;
+  assert.ok(navIcon.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"'), "the mask glyph is a 16px viewBox svg");
+  assert.match(navIcon, /fill-rule="evenodd"/u);
+  assert.ok(navIcon.endsWith("</svg>"), "the mask glyph is closed");
+  assert.equal(exportsObject.__internals.SETTINGS_NAV_ICON_MARKER, "data-dwmc-nav-icon");
+  const isOwn = exportsObject.__internals.isOwnSettingsNavRow;
+  assert.equal(isOwn("桌面控制", "桌面控制"), true);
+  assert.equal(isOwn("  Desktop  ", "Desktop"), true);
+  assert.equal(isOwn("桌面控制", "Desktop"), false);
+  assert.equal(isOwn("", "桌面控制"), false);
+  assert.equal(isOwn("桌面控制", ""), false);
+  const maskUrl = exportsObject.__internals.settingsNavMaskUrl();
+  assert.ok(maskUrl.startsWith("data:image/svg+xml,"));
+  assert.ok(maskUrl.includes("%3Csvg"), "the svg is percent-encoded for a CSS url()");
+  assert.ok(!maskUrl.includes("'"), "the url never breaks out of url('…')");
+  const iconCss = exportsObject.__internals.settingsNavIconCss(maskUrl);
+  assert.ok(iconCss.includes("[data-dwmc-nav-icon] > svg{display:none}"));
+  assert.ok(iconCss.includes("[data-dwmc-nav-icon]::before"));
+  assert.ok(iconCss.includes("background-color:currentColor"));
+  assert.ok(iconCss.includes("mask-image:url('data:image/svg+xml,"));
+  assert.ok(iconCss.includes("width:16px;height:16px"));
+  assert.ok(!/#[0-9a-f]{3}/iu.test(iconCss), "the glyph takes its colour from currentColor");
+
+  const registrations = [];
+  exportsObject.apply({
+    slots: {
+      inject(_name, callback) { callback(); },
+      register(meta, component) { registrations.push({ meta, component }); return { meta, component }; },
+    },
+  });
+
+  const section = registrations.find((entry) => entry.meta.name === "settings.section");
+  assert.ok(section, "the settings section must be registered");
+  assert.equal(section.meta.id, "windows-mcp-settings");
+  assert.equal(typeof section.meta.order, "number");
+  assert.equal(typeof section.meta.label(), "string");
+  assert.equal(typeof section.component, "function");
+  const rendered = section.component({});
+  assert.equal(typeof rendered.type, "function", "the slot renders the settings page component");
+  const page = rendered.type(rendered.props ?? {});
+  assert.equal(typeof page.type, "string", "the page renders without throwing while loading");
+});
 /* ------------------------------------------------------------------ *
  * dependency lifecycle
  * ------------------------------------------------------------------ */

@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-10-29
+
+### Added
+
+- **Settings page** (`lib/settings.js`, the `settings.section` slot): a new
+  **Settings → Desktop** entry whose page groups the knobs into
+  **Bridge** (`toolCallTimeoutMs`, screenshot scale/backend, flash overlay,
+  the excludable tools), **Updates** (check on boot, preferred mirror) and
+  **About** (version, repository, a **Star** button). Values are validated and
+  clamped, stored atomically in `$DSH_HOME/dsh-windows-mcp.settings.json`, and
+  bridge changes are written into the profile's bridge row with a backup; the
+  page reports when a restart is needed.
+- `preferredMirror`: the update check can pin a mirror while `auto` keeps the
+  measured ranking.
+- The settings entry now wears a monitor-and-cursor glyph instead of the
+  shell's gear: the `settings.section` slot has no icon field, so the icon is
+  painted as a `currentColor` mask on the settings nav row, matched by the
+  entry's own localized label.
+
+### Fixed
+
+- Reading the bridge row now treats a missing `WINDOWS_MCP_DISABLE_FLASH`
+  inside the machine-written block as "flash enabled", not as unknown.
+- `mirrorOrder` had a stray spacing glitch on its declaration line.
 ## [0.2.0] - 2026-10-24
 
 ### Added
