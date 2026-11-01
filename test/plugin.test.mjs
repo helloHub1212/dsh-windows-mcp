@@ -328,6 +328,9 @@ function loadClientBundle() {
   const reactStub = {
     // React flattens arrays and drops empty children; the stub must too, or a
     // panel that passes an array of rows looks empty to the assertions below.
+    useRef(initial) {
+      return { current: initial };
+    },
     createElement(type, props, ...children) {
       const flat = [];
       const push = (value) => {
@@ -388,6 +391,18 @@ test("client bundle registers the composer pill and the Plugins-page slots", () 
     assert.equal(typeof entry.component, "function");
     assert.ok(injected.includes(slot), `${slot} must be declared through slots.inject`);
   }
+});
+
+test("the pill re-reads the host flag instead of freezing its first render", () => {
+  // The switch used to fetch /state once on mount, so a flag changed by the
+  // settings page, an installer run or another window left the pill showing a
+  // stale position. It now refreshes on a timer and when the window regains
+  // focus, and stays quiet while its own write is in flight.
+  assert.ok(clientSource.includes("window.setInterval(refresh, 4000)"), "the pill polls the host flag");
+  assert.ok(clientSource.includes('window.addEventListener("focus", refresh)'), "the pill resyncs on focus");
+  assert.ok(clientSource.includes('window.removeEventListener("focus", refresh)'), "the listener is released on unmount");
+  assert.ok(clientSource.includes("if (!busyRef.current) load();"), "the poller never overwrites an in-flight write");
+  assert.ok(clientSource.includes("busyRef.current = false;"), "every settle path clears the in-flight flag");
 });
 
 test("the pill is an accessible switch", () => {

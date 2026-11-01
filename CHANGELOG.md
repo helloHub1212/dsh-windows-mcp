@@ -24,6 +24,13 @@ All notable changes to this project are documented here. The format follows
   boot warnings no longer claim `uv`/`uvx` is needed to *start* the bridge (it is
   only needed to install the dependency).
 
+- **The Computer Use switch no longer freezes at its first render.** The pill
+  used to read `/state` once on mount, so a flag changed elsewhere (the
+  settings page, an installer run, another window) left the switch showing a
+  position the host no longer had. It now re-reads the host every 4 seconds and
+  whenever the window regains focus, and stays quiet while its own write is in
+  flight.
+
 ### Changed
 
 - **The dependency UI moved into the settings page.** Install / reinstall /
