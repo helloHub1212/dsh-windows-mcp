@@ -94,9 +94,14 @@ test("patch mounts exactly the plugin row and the official bridge row", () => {
   assert.equal(bridgeRow.name, "@deepseek-ai/dsh-mcp-client", "must reuse the in-box bridge");
 
   const config = bridgeRow.config;
+  assert.equal(
+    bridgeRow.disabled,
+    true,
+    "the bridge ships inert: a cold `uvx` resolve inside DSH's startup can hang the window on Loading plugins…",
+  );
   assert.equal(config.transport, "stdio");
   assert.equal(config.serverName, "windows", "serverName drives the mcp__windows__ prefix");
-  assert.equal(config.command, "uvx");
+  assert.equal(config.command, "uvx", "fallback command, only used if the row is re-enabled without a rewrite");
   assert.ok(Array.isArray(config.args));
   assert.ok(config.args.includes("serve"), "windows-mcp is a command group: `serve` is required");
   const excludeIndex = config.args.indexOf("--exclude-tools");
@@ -408,7 +413,7 @@ test("the pill is an accessible switch", () => {
   assert.equal(typeof pill.props.onClick, "function");
 });
 
-test("the dependency panel renders a plain section with an action row", () => {
+test("the plugin card points at the settings page instead of duplicating the installer", () => {
   const { exportsObject } = loadClientBundle();
   const registrations = [];
   exportsObject.apply({
@@ -418,11 +423,20 @@ test("the dependency panel renders a plain section with an action row", () => {
     },
   });
 
-  const panel = registrations.find((entry) => entry.meta.name === "plugins.bundle.config").component;
-  const rendered = panel({});
+  const note = registrations.find((entry) => entry.meta.name === "plugins.bundle.config").component;
+  const rendered = note({});
   assert.equal(rendered.type, "section");
   assert.equal(rendered.props.className, "dwmc-panel");
-  assert.ok(Array.isArray(rendered.children) && rendered.children.length >= 2, "head, rows and actions");
+  assert.ok(Array.isArray(rendered.children) && rendered.children.length >= 2, "status head and a pointer note");
+  const pointer = rendered.children.find((child) => child && child.props && child.props.className === "dwmc-note");
+  assert.ok(pointer, "the plugin card carries a pointer note");
+  assert.equal(typeof pointer.children[0], "string", "the pointer is a single localized sentence");
+
+  // The panel body doubles as the Dependency card of the settings page.
+  const embedded = exportsObject.__internals.WindowsMcpPanel({ __embedded: true });
+  assert.equal(embedded.type, "div");
+  assert.equal(embedded.props.className, "dwmc-dep");
+  assert.ok(Array.isArray(embedded.children) && embedded.children.length >= 2, "rows and actions, without the panel head");
 
   const compact = registrations.find((entry) => entry.meta.name === "plugins.bundle.activation").component;
   const compactWrapper = compact({});
@@ -477,6 +491,8 @@ test("client bundle registers the settings page with a star link", () => {
   assert.ok(iconCss.includes("width:16px;height:16px"));
   assert.ok(!/#[0-9a-f]{3}/iu.test(iconCss), "the glyph takes its colour from currentColor");
 
+  assert.ok(exportsObject.__internals.CSS.includes(".dwmc-dep{"), "the embedded panel has its own layout hook");
+
   const registrations = [];
   exportsObject.apply({
     slots: {
@@ -522,6 +538,7 @@ test("the machine-written block is idempotent and keeps the rest of the file", (
     assert.ok(Array.isArray(parsed), "the result must stay a top-level list");
     const row = parsed.find((entry) => entry?.id === "windows-mcp-bridge");
     assert.ok(row, "the override row must parse");
+    assert.equal(row.disabled, false, "the machine block re-enables the row the bundle patch ships inert");
     assert.equal(row.config.command, "D:\\other\\windows-mcp.exe");
     assert.equal(row.config.serverName, "windows");
     assert.equal(row.config.transport, "stdio");

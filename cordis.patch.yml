@@ -12,13 +12,30 @@
 #
 # Every tool the bridge registers shows up as `mcp__windows__<ToolName>`.
 #
+# BOOT SAFETY — the bridge row ships `disabled: true` on purpose.
+#
+# The fallback command below is `uvx windows-mcp@0.8.8`, which resolves and
+# downloads Windows-MCP's Python dependencies from the package index. On a slow
+# or blocked network that resolve can sit inside DSH's startup for minutes and
+# the window stays on "Loading plugins…". A plugin must never be able to do that
+# to the host, so the row ships inert: DSH boots, the Plugins page says the
+# dependency is missing, and the user starts the install from there (it probes
+# mirrors and installs into the plugin's own toolchain directory).
+#
+# The installer then writes the row again into the profile's own patch layer
+# ($DSH_HOME/profiles/<profile>/cordis.patch.yml) between the
+# `# >>> dsh-windows-mcp …` markers, with `disabled: false` and `command:`
+# pointing at the installed executable — so later boots spawn the exe directly
+# and never touch the network or `uvx`.
+#
 # Tuning: change `args` / `env` below, or override this row from your profile's
-# own patch layer (`$DSH_HOME/profiles/<profile>/cordis.patch.yml`):
+# own patch layer:
 #
 #   - id: windows-mcp-bridge
+#     disabled: false
 #     config:
+#       command: 'C:\path\to\windows-mcp.exe'
 #       args:
-#         - windows-mcp@0.8.8
 #         - serve
 #         - --exclude-tools
 #         - App
@@ -29,10 +46,15 @@
 
     - id: windows-mcp-bridge
       name: "@deepseek-ai/dsh-mcp-client"
+      # Inert until the installer points it at a real executable (see above):
+      # a cold `uvx` resolve inside DSH's startup can hang the whole window.
+      disabled: true
       config:
         # Namespace for every tool name: mcp__windows__Screenshot, ...
         serverName: windows
         transport: stdio
+        # Only reached if someone re-enables this row without rewriting
+        # `command`; harmless, because by then the toolchain is installed.
         command: uvx
         args:
           # Pinned for reproducibility. Replace with `windows-mcp` to float, or
@@ -46,9 +68,11 @@
           - --exclude-tools
           - App,PowerShell,FileSystem
         # Screenshots, UIA tree walks and PowerShell-style waits are slow.
+        # Keep the pinned version in `args` below: the settings page and the
+        # installer read it, and the profile block the installer writes restates
+        # this row at that version.
         toolCallTimeoutMs: 120000
-        # Keep boot alive when Windows-MCP is not installed (or uvx is missing):
-        # the doctor tool explains what to fix instead of failing the profile.
+        # Belt and braces: a missing Windows-MCP must never fail the profile.
         failOnStartupError: false
         reconnect:
           enabled: true

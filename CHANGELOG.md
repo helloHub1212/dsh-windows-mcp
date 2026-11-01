@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-11-01
+
+### Fixed
+
+- **A fresh install can no longer hang DSH's startup.** The bridge row used to
+  start as `uvx windows-mcp@0.8.8`, which resolves the entire Python dependency
+  tree from the package index on first launch. Behind a slow or blocked network
+  that resolve sat inside the host's plugin boot for minutes — the window stayed
+  on “Loading plugins…” and DSH logged a crash. The bundle patch now ships the
+  bridge row with `disabled: true`, so boot never runs `uvx` or touches the
+  network; the dependency is installed from **Settings → Desktop**, which
+  rewrites the row with `disabled: false` and an absolute `command:` and asks for
+  one restart.
+- The machine-written profile block now restates `disabled: false`. Without it
+  the block would override `config` while the bundle layer's `disabled: true`
+  stayed in effect, leaving a profile with no Windows tools at all.
+- `windows_mcp_doctor` and the startup audit now explain this sequence, and the
+  boot warnings no longer claim `uv`/`uvx` is needed to *start* the bridge (it is
+  only needed to install the dependency).
+
+### Changed
+
+- **The dependency UI moved into the settings page.** Install / reinstall /
+  update / roll back / “Point the bridge at it”, the live installer log and the
+  patch target now live in the **Dependency** card of **Settings → Desktop**,
+  next to the bridge knobs they affect. The plugin's own card keeps a one-line
+  status that points there; the activation prompt shown after enabling the
+  bundle still offers the install button.
+
+### Added
+
+- README (EN/zh): “boot is never blocked by the dependency”, how the two-step
+  install works, and a `uv.toml` mirror snippet for restricted networks.
+
 ## [0.2.1] - 2026-10-29
 
 ### Added

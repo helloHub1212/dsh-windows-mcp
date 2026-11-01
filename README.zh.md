@@ -53,25 +53,26 @@ DSH agent
 
 - **Windows 10/11。**
 - **DeepSeek Harness 桌面版**，且内置 `@deepseek-ai/dsh-mcp-client` 桥（0.2.0-rc.2 及以上）。
-- 运行 DSH 的那个进程能在他自己的 `PATH` 上找到 **[uv](https://docs.astral.sh/uv/)**（`uvx` 靠它拉起 Windows-MCP）。即使没在 `PATH` 上，插件也会额外搜索 `%USERPROFILE%\.local\bin`。
+- 运行 DSH 的那个进程能在他自己的 `PATH` 上找到 **[uv](https://docs.astral.sh/uv/)**（插件用它在面板里装 Windows-MCP；DSH 本身启动不需要它）。即使没在 `PATH` 上，插件也会额外搜索 `%USERPROFILE%\.local\bin`。
 - 想让 agent 真正**看到**截图，需要**支持图片输入的模型**。
 
-### 首次启动 vs 之后每次启动
+### 启动永远不会被依赖卡住
 
-`uvx` 第一次运行时会为 `windows-mcp` 建一个隔离环境，所以**首次**启动要下载几十 MB 的
-Python 依赖，慢网下可能要好几分钟；桥每次启动只等大约一分钟然后重试，因此冷启动可能要
-试几次工具才会出现。
+桥那一行**出厂就是 disabled**，这是刻意的。`uvx` 式的首次启动会去包索引解析并下载
+Windows-MCP 的 Python 依赖，慢网或被墙时这个解析能在 DSH 启动过程里挂几分钟——窗口一直停在
+“Loading plugins…”。插件不应该有能力对宿主做这种事，所以：
 
-依赖装好之后服务本身很快 —— 本机实测（Windows 11）**约 1.5 秒就绪**。想从第一次 DSH
-启动就这么快，先手动装一次：
+- **装完 bundle 第一次启动：** DSH 照常秒开，暂时没有 Windows 工具，依赖状态显示为*未安装*（插件页和 **设置 → 桌面控制** 都这么说）。
+- **在 设置 → 桌面控制 里安装依赖**（见下一节）：它会先探测 PyPI 镜像，把依赖装进插件自己的 toolchain 目录，
+  然后把桥那一行重写成 `disabled: false` + `command:` 指向装好的可执行文件。
+- **重启一次 DSH。** 之后桥直接拉起那个 exe —— 本机实测（Windows 11）**约 1.5 秒就绪**，不走网络。
 
-```powershell
-uv tool install windows-mcp          # 没有时间限制，跑一次即可
+`uv` 只由安装器用到。网络受限时，给 `uv` 配一次镜像（`%APPDATA%\uv\uv.toml`），手动/CLI
+路径也能同样提速：
+
+```toml
+default-index = "https://mirrors.aliyun.com/pypi/simple"
 ```
-
-然后把该行的 `command` 指向装好的命令（`command: windows-mcp`），写法见
-[从自己的 profile 覆盖这一行](#从自己的-profile-覆盖这一行)——`config` 要**整块重写**，
-补丁是替换不是深合并。之后每次启动都会复用 `uv` 建好的环境。
 
 ## 安装
 
@@ -89,13 +90,13 @@ dsh plugin --profile <profile> add github:helloHub1212/dsh-windows-mcp
 
 ### 在应用里直接装依赖
 
-Windows-MCP 本身是个 Python 程序，所以 **设置 → 插件 → dsh-windows-mcp** 这一页现在会显示依赖状态并直接帮你装：
+Windows-MCP 本身是个 Python 程序，所以 **设置 → 桌面控制** 里的 **依赖** 卡片会显示它的状态并直接帮你装：
 
 - **依赖** —— `已安装 0.8.8` / *未安装* / *未找到 uv*；
-- **下载并安装** —— 跑一次 `uv tool install windows-mcp@<锁定版本>`，安装输出实时显示在页面上，过程中可以**取消**；
-- 装完之后，插件会**自己把桥那一行写进你 profile 的 `cordis.patch.yml`**（先做带时间戳的备份，并用成对标记包住，可重复执行）——这样桥启动的是装好的可执行文件，而不是拿 `uvx` 去赌冷缓存。**重启 DSH** 生效。
+- **下载并安装** —— 跑一次 `uv tool install windows-mcp@<锁定版本>`（走实测最快的镜像），安装输出实时显示在页面上，过程中可以**取消**；
+- 装完之后，插件会**自己把桥那一行写进你 profile 的 `cordis.patch.yml`**（先做带时间戳的备份，并用成对标记包住，可重复执行），写的是 `disabled: false` + `command:` 指向装好的可执行文件。**重启 DSH** 生效；之后桥直接拉起 exe，启动时不再解析任何包索引。
 
-它写进去的就是 [换成固定的解释器](#换成固定的解释器不用-uvx) 里那条行；把标记之间的块删掉就回到 `uvx`。启用 bundle 之后弹的提示用的是同一个面板。
+它写进去的就是 [换成固定的解释器](#换成固定的解释器不用-uvx) 里那条行；把标记之间的块删掉就回到出厂那条**禁用**的 `uvx` 行。**设置 → 插件** 里本插件的那一页只留一行状态并指向这里；启用 bundle 之后弹的提示则直接提供同一个安装按钮。
 
 面板上还会显示 **写入目标**：手动写入会落到哪个 `cordis.patch.yml`，也就是这个宿主启动的那个 profile（`dsh --profile web` 启动的 web 宿主同样适用）。如果本插件装在多个 profile 里、而宿主没有报告自己启动的是哪一个，插件**不会猜**：它什么都不写并直接说明——给运行 DSH 的进程设 `DSH_WINDOWS_MCP_PROFILE=<profile 名>`（或 profile 的绝对路径）再重试。
 
@@ -118,6 +119,7 @@ Windows-MCP 本身是个 Python 程序，所以 **设置 → 插件 → dsh-wind
 
 除了插件卡片上的这些，还有几个不属于卡片的小开关，集中在 **设置 → 桌面控制** —— 设置界面左边栏里新增的一页，和别的插件页并列：
 
+- **依赖** —— 安装、重装、更新、回退，以及「指向桥」按钮；带实时安装日志和写入目标。插件页只留一行指向这里。
 - **桥接** —— `toolCallTimeoutMs`、截图缩放、截图后端、上游的闪光提示层，以及桥允许排除的三个工具（`App`、`PowerShell`、`FileSystem`）。这些会写进你 profile 的 `cordis.patch.yml` 桥行（先做时间戳备份），所以 **重启 DSH 后才生效**；页面上会写明当前生效的是哪一行。
 - **更新** —— 是否在启动时自动检查新版 Windows-MCP，以及镜像策略：`auto` 用实测排序，指定镜像则固定用它（官方源始终留作最后的兜底）。
 - **关于** —— 插件版本、仓库链接，以及一个「点个 Star」按钮，点开在新标签页打开 GitHub 仓库。
@@ -211,11 +213,11 @@ Windows-MCP 也能作为后台服务运行。上游的 `windows-mcp install` 会
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| 完全没有 `mcp__windows__*` 工具 | 跑 `windows_mcp_doctor`。要么 DSH 进程的 `PATH` 里没有 `uvx`，要么首次冷下载还没结束。查 DSH 宿主日志里的 `mcp-client(windows)` 行。 |
+| 完全没有 `mcp__windows__*` 工具 | 跑 `windows_mcp_doctor`。全新安装时这是**预期**的：桥出厂是 disabled，要在 **设置 → 桌面控制** 里装完依赖、重启 DSH 之后才会启用。若依赖已装，看 doctor 打印的生效行里的 `disabled` / `command`，以及宿主日志里的 `mcp-client(windows)` 行。 |
 | 升级后工具消失了 | 工具名是 `mcp__<serverName>__<tool>`。改 `serverName` 会改掉全部工具名（并打破 prompt 缓存前缀）。 |
 | 截图返回的是文本 | 当前模型不接受图片输入，或你的 harness 配置里关掉了附件。上游的图片只有在准入成功时才会被投影。 |
 | `App` 工具报错或没反应 | 上游明确说它只在英文版 Windows 上可靠；本插件默认已排除。 |
-| DSH 启动明显变慢 | 桥会在启动时拉起 Windows-MCP（而且先起一个一次性的探测进程）。可以把该行设 `enabled: false`；`failOnStartupError: false` 保证 DSH 其余部分不受影响。 |
+| DSH 启动明显变慢 | 桥不该占用启动时间：它出厂 `disabled: true`，只有安装后把 `command` 指到可执行文件才会启动。启动变慢说明**别的**行在引导期解析工具链——看 `windows_mcp_doctor` 打印的生效行。 |
 | 截图里的字看不清 | 把 `WINDOWS_MCP_SCREENSHOT_SCALE` 提到接近 `1.0`；上游截图上限是 1920×1080。 |
 
 ## 安全
@@ -240,6 +242,7 @@ DSH 插件本质是 loader 补丁，而补丁行**可以挂载位于 Electron `a
       name: dsh-windows-mcp                  # lib/index.js：doctor 工具 + 启动审计
     - id: windows-mcp-bridge
       name: "@deepseek-ai/dsh-mcp-client"    # 内置桥，按 Windows-MCP 配置
+      disabled: true                          # 出厂禁用，等安装器把 command 指到 exe
       config: { transport: stdio, command: uvx, args: [windows-mcp@0.8.8, serve, ...] }
 ```
 

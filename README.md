@@ -53,27 +53,33 @@ Switching it off is a hard switch, not a hint. The bridge keeps running, but fro
 
 - **Windows 10/11.**
 - **DeepSeek Harness Desktop** with the in-box `@deepseek-ai/dsh-mcp-client` bridge (0.2.0-rc.2 or newer).
-- **[uv](https://docs.astral.sh/uv/)** on the `PATH` of the process that runs DSH — this is how `uvx` launches Windows-MCP. `%USERPROFILE%\.local\bin` is searched even when it is not on `PATH`.
+- **[uv](https://docs.astral.sh/uv/)** on the `PATH` of the process that runs DSH — **Settings → Desktop** uses it to install Windows-MCP. DSH itself boots without it. `%USERPROFILE%\.local\bin` is searched even when it is not on `PATH`.
 - **A model that accepts image input** if you want the agent to actually *see* screenshots.
 
-### First start vs. later starts
+### Boot is never blocked by the dependency
 
-`uvx` builds an isolated environment for `windows-mcp` the first time it runs, so
-the initial launch downloads the Python dependencies (tens of MB) and can take
-minutes on a slow connection. The bridge waits roughly a minute per launch and then
-retries, so a cold start may take a few attempts before the tools appear.
+The bridge row ships **disabled**, on purpose. A `uvx`-style first launch
+resolves Windows-MCP's Python dependencies from the package index, and on a slow
+or blocked network that resolve can sit inside DSH's startup for minutes — the
+window stays on “Loading plugins…”. A plugin must never be able to do that to
+its host, so:
 
-The server itself is fast once provisioned — measured on Windows 11: **ready about
-1.5 s after launch**. To get that from the very first DSH start, provision once:
+- **First boot after installing the bundle:** DSH starts normally, no Windows
+  tools yet, and the dependency is reported as *not installed* — both on the
+  Plugins page and in **Settings → Desktop**.
+- **Install it from Settings → Desktop** (next section). It probes PyPI mirrors,
+  installs into the plugin's own toolchain directory, and rewrites the bridge row
+  with `disabled: false` and `command:` pointing at the installed executable.
+- **Restart DSH once.** From then on the bridge spawns the exe directly — on
+  Windows 11 the server is ready about **1.5 s** after launch, with no network.
 
-```powershell
-uv tool install windows-mcp          # no time limit; run it once
+`uv` is only needed by the installer. On a restricted network, point `uv` at a
+mirror once (`%APPDATA%\uv\uv.toml`) and the manual/CLI paths get the same
+speed-up:
+
+```toml
+default-index = "https://mirrors.aliyun.com/pypi/simple"
 ```
-
-…then point the row at the installed command (`command: windows-mcp`) as described
-in [Override the row from your profile](#override-the-row-from-your-profile) —
-restate the whole `config`, because a patch replaces it. Either way later starts
-reuse the environment `uv` built.
 
 ## Install
 
@@ -93,13 +99,13 @@ dsh plugin --profile <profile> add github:helloHub1212/dsh-windows-mcp
 
 ### Install the dependency from the app
 
-Windows-MCP itself is a Python program, so its bundle page in **Settings → Plugins → dsh-windows-mcp** shows the dependency state and installs it for you:
+Windows-MCP itself is a Python program, so the **Dependency** card in **Settings → Desktop** shows its state and installs it for you:
 
 - **Dependency** — `installed 0.8.8`, or *not installed*, or *uv not found*.
-- **Download and install** — runs `uv tool install windows-mcp@<pinned>` once, streams the installer output into the page, and offers **Cancel** while it runs.
-- When it finishes, the plugin **writes the bridge row into your profile's `cordis.patch.yml` itself** — after a timestamped backup, inside idempotent markers — so the bridge launches the installed executable instead of racing `uvx` against a cold cache. **Restart DSH** to apply that.
+- **Download and install** — runs `uv tool install windows-mcp@<pinned>` once (through the fastest mirror), streams the installer output into the page, and offers **Cancel** while it runs.
+- When it finishes, the plugin **writes the bridge row into your profile's `cordis.patch.yml` itself** — after a timestamped backup, inside idempotent markers — with `disabled: false` and `command:` pointing at the installed executable. **Restart DSH** to apply that; from then on the bridge launches the exe directly and never resolves a package index during boot.
 
-The block it writes is exactly the row documented under [Pin a local interpreter instead of `uvx`](#pin-a-local-interpreter-instead-of-uvx); delete the marked block to go back to `uvx`. The same page is what you land on after enabling the bundle (the activation prompt reuses it).
+The block it writes is the row documented under [Pin a local interpreter instead of `uvx`](#pin-a-local-interpreter-instead-of-uvx); delete the marked block to return to the inert, `uvx`-based row. The plugin's own page in **Settings → Plugins** keeps a one-line status that points here, and the activation prompt shown after enabling the bundle offers the same install button.
 
 The page also shows the **Patch target**: the `cordis.patch.yml` a manual write would touch, which is the profile this host booted — including a `dsh --profile web` host. If this package sits in more than one profile and the host does not report which one it started, the plugin writes nothing and says so instead of guessing: set `DSH_WINDOWS_MCP_PROFILE=<profile name>` (or an absolute profile directory) for the process that runs DSH and retry.
 
@@ -112,7 +118,7 @@ The same page manages the upstream version, so an upgrade never means reinstalli
 - **Update in one click.** **Update to vX** downloads that version from the fastest mirror that works, verifies the executable and its `dist-info`, then activates it — the panel names the running version and the mirror it came from.
 - **Roll back the same way.** **Roll back to vPrev** points the bridge back at the version the active one replaced; nothing is downloaded.
 
-Only the managed installs are touched: until you install one, the bridge keeps using the global `uv tool` installation, and the panel says which side is live (`uv-tool` vs `managed`).
+Only managed installs are used by the bridge: it stays disabled until an install (or **Point the bridge at it**) rewrites the row with a real executable, and the panel says which side is live (`uv-tool` vs `managed`).
 
 ### Fast mirrors for the Python dependency
 
@@ -122,6 +128,7 @@ The check measures all seven candidates — PyPI plus the USTC, Aliyun, Tencent 
 
 Everything above, plus a few knobs that do not belong on a plugin card, lives in **Settings → Desktop** — a new entry in the settings sidebar, next to the other plugins' pages:
 
+- **Dependency** — install, reinstall, update, roll back, and a **Point the bridge at it** action, with the live installer log and the patched row's target. The plugin's own page only carries a pointer to this card.
 - **Bridge** — `toolCallTimeoutMs`, the screenshot scale, the capture backend, upstream's flash overlay, and the three tools the bridge may exclude (`App`, `PowerShell`, `FileSystem`). These are written into the bridge row of your profile's `cordis.patch.yml` (timestamped backup first), so **they apply after DSH restarts**; the page states which row is in effect.
 - **Updates** — whether the plugin checks for a newer Windows-MCP on boot, and the mirror policy: `auto` keeps the measured ranking, an explicit mirror pins it, and the official index always stays as the last resort.
 - **About** — the plugin version, the repository link, and a **Star** button that opens the project on GitHub in a new tab.
@@ -237,11 +244,11 @@ or an explicit `--allow-insecure-remote`.
 
 | Symptom | Likely cause and fix |
 | --- | --- |
-| No `mcp__windows__*` tools at all | Run `windows_mcp_doctor`. Either `uvx` is not on the PATH DSH sees, or the first cold download is still running. Check the DSH host log for `mcp-client(windows)` lines. |
+| No `mcp__windows__*` tools at all | Run `windows_mcp_doctor`. On a fresh install that is expected: the bridge ships disabled until you install the dependency from **Settings → Desktop** and restart DSH. If it is installed already, the doctor prints the effective row — look for `disabled` / `command` — and the host log carries `mcp-client(windows)` lines. |
 | Tools disappeared after an upgrade | The tool names are `mcp__<serverName>__<tool>`. Changing `serverName` changes every tool name (and breaks the prompt cache prefix). |
 | Screenshots come back as text | The active model does not accept image input, or attachments are disabled in your harness configuration. Upstream images are only projected when admission succeeds. |
 | `App` tool fails or returns nothing | Upstream documents it as reliable on English Windows installs only; it is excluded by default. |
-| DSH takes noticeably longer to boot | The bridge starts Windows-MCP at boot (and starts a throwaway probe process first). Set the row's `enabled: false`, or `failOnStartupError: false` keeps the rest of DSH unaffected. |
+| DSH takes noticeably longer to boot | The bridge should not cost boot time: it ships `disabled: true` and only starts once an install has pointed it at an executable. A slow boot means some *other* row is resolving a toolchain at boot — check the effective row printed by `windows_mcp_doctor`. |
 | Screenshot text is unreadable | Raise `WINDOWS_MCP_SCREENSHOT_SCALE` toward `1.0`; upstream caps captures at 1920×1080. |
 
 ## Security
@@ -285,6 +292,7 @@ behind this package:
       name: dsh-windows-mcp                  # lib/index.js: doctor tool + startup audit
     - id: windows-mcp-bridge
       name: "@deepseek-ai/dsh-mcp-client"    # in-box bridge, configured for Windows-MCP
+      disabled: true                          # inert until an install points it at an exe
       config: { transport: stdio, command: uvx, args: [windows-mcp@0.8.8, serve, ...] }
 ```
 
