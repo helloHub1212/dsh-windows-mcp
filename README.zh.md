@@ -230,7 +230,9 @@ Windows-MCP 也能作为后台服务运行。上游的 `windows-mcp install` 会
 - **子进程环境会清密。** 桥启动 MCP 子进程时会先做环境清洗：名字匹配 `KEY|PASSWORD|SECRET|TOKEN` 的变量、以及**所有 `DSH_*`** 变量都会被删掉，然后才合并配置里的 `env`。所以凭据必须显式写进该行的 `env`，不能指望继承。
 - **本插件不发送遥测。** 上游自己的 PostHog 上报已在默认配置里显式关闭。
 - **远程提供不是隐藏默认值。** 若你切到 HTTP，上游会强制 loopback 主机过滤，非 loopback 且无鉴权时拒绝启动。
-- **本插件自己的路由没有鉴权。** `/dsh-windows-mcp/state`、`/prepare`、`/prepare/cancel`、`/bridge` 由和 UI 同一个 web 服务器提供，自身不做 token 校验。所以装了本插件的 DSH web 宿主**不要**用非 loopback 的 `--host` 暴露：能访问到它的人可以触发安装、或改写某个 profile 的补丁层。
+- **开关只由窗口决定，不由网络决定。** 所有写操作路由（`/state`、`/prepare`、`/prepare/cancel`、`/bridge`、`/update`、`/settings`）都要求浏览器在启动 token 兑换时拿到的**签名会话 cookie**，没有就返回 `401`。脚本、`curl`、或拿得到 shell 的模型都无法给自己打开桌面控制。读请求保持开放，页面才能先渲染再决策。
+- **无法校验 cookie 时插件会明说。** 没有挂载 `connection` 服务的组合（headless 宿主、Electron `file://`）无法鉴权，此时 `/state` 会报告 `"gate": {"cookie": "unobservable"}`——这种情况下**不要**用非 loopback 的 `--host` 暴露 web 服务器。
+- **文件仍然是文件。** `$DSH_HOME/dsh-windows-mcp.state.json` 里的 Computer Use 标志与机器写入的补丁块都是同用户可写的普通文件。能写这些文件的 agent 仍能在重启后改变插件行为——cookie 鉴权关的是 HTTP 这条路，不是文件系统信任。介意的话，把桌面放到 agent 无法写入的账户下运行，或不要同时把 shell 权限和桌面控制交给同一个模型。
 
 ## 原理
 

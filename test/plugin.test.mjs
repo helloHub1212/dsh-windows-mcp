@@ -237,6 +237,63 @@ test("the host registers the Computer Use state route and answers GET", async ()
   assert.equal(wrongMethod.status, 405);
 });
 
+test("a mutation without the GUI session cookie is refused", async () => {
+  // The switch used to be a plain POST away for anything that could reach
+  // 127.0.0.1 — including the agent itself through a shell. The Host's
+  // Connection service mints a signed cookie only through the launch-token
+  // exchange, so the routes now demand it for every POST.
+  const home = mkdtempSync(join(tmpdir(), "dsh-windows-mcp-auth-"));
+  process.env.DSH_HOME = home;
+  const fresh = await import(`../lib/index.js?auth-route=${Date.now()}`);
+
+  const routes = new Map();
+  const makeCtx = (authenticated) => ({
+    logger: { warn() {} },
+    inject(services, callback) {
+      if (services.includes("webServer")) {
+        callback({
+          webServer: { register(candidate) { routes.set(candidate.path, candidate); return () => {}; }, protocol: "http:" },
+          get: (key) => {
+            if (key === "tools") return { schemas: () => [] };
+            if (key === "webServer") return { protocol: "http:" };
+            if (key === "connection") return { browserAuth: { isAuthenticated: () => authenticated } };
+            return undefined;
+          },
+        });
+        return;
+      }
+      callback({ tools: { register() { return () => {}; }, guard() { return () => {}; } } });
+    },
+  });
+
+  fresh.apply(makeCtx(false));
+  const route = routes.get("/dsh-windows-mcp/state");
+  assert.ok(route, "the state route must be registered");
+
+  const read = fakeResponse();
+  route.handler({ method: "GET" }, read);
+  assert.equal(read.status, 200, "reads stay open so the page can render before any decision");
+
+  const refused = fakeResponse();
+  route.handler(fakeRequest("POST", '{"enabled":true}'), refused);
+  assert.equal(refused.status, 401, "no cookie, no switch");
+  const refusal = JSON.parse(refused.body);
+  assert.match(refusal.error, /DSH window/u);
+  assert.ok(!existsSync(join(home, "dsh-windows-mcp.state.json")), "a refused write persists nothing");
+
+  const settingsRefused = fakeResponse();
+  routes.get("/dsh-windows-mcp/settings").handler(fakeRequest("POST", '{"settings":{}}'), settingsRefused);
+  assert.equal(settingsRefused.status, 401, "settings writes are gated too");
+
+  // Same routes, same body, now with the browser's cookie: allowed.
+  routes.clear();
+  fresh.apply(makeCtx(true));
+  const accepted = fakeResponse();
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), accepted);
+  assert.equal(accepted.status, 200);
+  assert.equal(JSON.parse(accepted.body).enabled, true);
+});
+
 test("the Computer Use switch truly hides the bridged tools and refuses them", async () => {
   const home = mkdtempSync(join(tmpdir(), "dsh-windows-mcp-gate-"));
   process.env.DSH_HOME = home;

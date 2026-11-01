@@ -271,11 +271,23 @@ What the design does and does not do:
 - **Remote serving is upstream's problem, not a hidden default.** If you switch
   to HTTP, upstream enforces loopback host filtering and refuses to start on a
   non-loopback address without an auth key.
-- **This plugin's own routes are not authenticated.** `/dsh-windows-mcp/state`,
-  `/prepare`, `/prepare/cancel` and `/bridge` are served by the same web server
-  as the UI and do no token check of their own, so do not expose a DSH web host
-  that has this plugin on a non-loopback `--host`: anyone who can reach it could
-  start an install or rewrite a profile's patch layer.
+- **Switch flips are a window decision, not a network one.** Every mutating
+  route (`/state`, `/prepare`, `/prepare/cancel`, `/bridge`, `/update`,
+  `/settings`) requires the signed session cookie the DSH window receives during
+  the launch-token exchange; without it the request is refused with `401`. A
+  script, `curl`, or a model with shell access cannot turn desktop control on for
+  itself. Reads stay open so pages can render before anything is decided.
+- **When the cookie cannot be checked, the plugin says so.** A composition that
+  mounts no `connection` service (headless hosts, Electron `file://`) cannot be
+  authenticated; `/state` then reports `"gate": {"cookie": "unobservable"}`. In
+  that case do not expose the web server on a non-loopback `--host`.
+- **Files are still files.** The Computer Use flag in
+  `$DSH_HOME/dsh-windows-mcp.state.json` and the machine-written patch block are
+  ordinary files owned by the same user. An agent that can write them can still
+  change the plugin's behaviour across a restart — the cookie gate closes the
+  HTTP path, not filesystem trust. If that matters to you, run the desktop on a
+  account the agent cannot write to, or do not grant shell access and desktop
+  control to the same model.
 
 ## How it works
 

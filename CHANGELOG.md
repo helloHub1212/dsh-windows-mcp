@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.2.2] - 2026-11-01
 
+### Security
+
+- **Mutating routes require the GUI session cookie.** `/state`, `/prepare`,
+  `/prepare/cancel`, `/bridge`, `/update` and `/settings` now refuse a `POST`
+  that does not carry the signed cookie the DSH window gets from the
+  launch-token exchange (`401`, "this change has to come from the DSH window").
+  Until now anything that could reach the loopback port — including a model
+  through its own shell — could flip the Computer Use switch for itself.
+- `/state` reports `"gate": {"cookie": "enforced" | "unobservable"}` so a
+  composition without the `connection` service is visible instead of silent.
+- The compositor switch now re-reads the host flag every four seconds and on
+  window focus, so it cannot sit on a stale value after the flag changed
+  elsewhere.
+
+
 ### Fixed
 
 - **A fresh install can no longer hang DSH's startup.** The bridge row used to
