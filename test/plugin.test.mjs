@@ -160,8 +160,9 @@ test("windows_mcp_doctor registers and produces a usable report", () => {
     },
   });
 
-  assert.equal(registered.length, 1);
-  const definition = registered[0];
+  assert.equal(registered.length, 2, "the doctor and the lazy-tool entry are both registered");
+  const definition = registered.find((candidate) => candidate.name === "windows_mcp_doctor");
+  assert.ok(definition, "the doctor is registered");
   assert.equal(definition.name, "windows_mcp_doctor");
   assert.equal(typeof definition.execute, "function");
   assert.equal(definition.parameters.additionalProperties, false);
@@ -172,6 +173,7 @@ test("windows_mcp_doctor registers and produces a usable report", () => {
   assert.match(output.report, /uvx\s+:/);
   assert.match(output.report, /windows-mcp-bridge/);
   assert.match(output.report, /computer use\s+:/);
+  assert.match(output.report, /lazy tools\s+:/);
   assert.match(output.report, /verdict {2,}:/);
 
   const blocks = definition.output.render({}, output);
@@ -294,6 +296,109 @@ test("a mutation without the GUI session cookie is refused", async () => {
   assert.equal(JSON.parse(accepted.body).enabled, true);
 });
 
+test("lazy tools reveal the desktop capabilities only on demand", async () => {
+  const home = mkdtempSync(join(tmpdir(), "dsh-windows-mcp-lazy-"));
+  process.env.DSH_HOME = home;
+  const fresh = await import(`../lib/index.js?lazy=${Date.now()}`);
+
+  const routes = new Map();
+  let assemble = null;
+  let guard = null;
+  const registered = [];
+  const catalog = [
+    ["mcp__windows__Screenshot", { description: "Take a screenshot", parameters: { type: "object", properties: {} } }],
+    ["mcp__windows__Click", { description: "Click a point", parameters: { type: "object", properties: { loc: { type: "array" } } } }],
+  ];
+  const tools = {
+    schemas: () => catalog,
+    register(definition) {
+      registered.push(definition);
+      return () => {};
+    },
+    guard(candidate) {
+      guard = candidate;
+      return () => {};
+    },
+  };
+  fresh.apply({
+    logger: { warn() {} },
+    on(event, listener) {
+      if (event === "system-prompt/assemble") assemble = listener;
+    },
+    inject(services, callback) {
+      if (services.includes("webServer")) {
+        callback({
+          webServer: { register(candidate) { routes.set(candidate.path, candidate); return () => {}; } },
+          get: () => undefined,
+        });
+        return;
+      }
+      callback({ tools });
+    },
+  });
+
+  const reveal = registered.find((definition) => definition.name === "windows_desktop");
+  assert.ok(reveal, "the reveal entry is registered as a normal tool");
+  assert.equal(typeof reveal.execute, "function");
+  assert.equal(typeof reveal.output.render, "function", "the reveal result is rendered for the transcript");
+
+  const enabled = fakeResponse();
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), enabled);
+  assert.equal(enabled.status, 200);
+
+  const alice = { id: "alice" };
+  const bob = { id: "bob" };
+  const assembly = {
+    sections: [],
+    contexts: [],
+    variables: {},
+    tools: [
+      { name: "mcp__windows__Screenshot" },
+      { name: "mcp__windows__Click" },
+      { name: "windows_desktop" },
+      { name: "bash" },
+    ],
+  };
+  const next = async () => assembly;
+
+  const before = await assemble(assembly, { agent: alice }, next);
+  assert.deepEqual(before.tools.map((tool) => tool.name), ["windows_desktop", "bash"], "the eighteen schemas stay out of the prompt");
+  assert.match(guard({ name: "mcp__windows__Click", agent: alice }) ?? "", /hidden to save context/u);
+
+  const revealedAll = reveal.execute({}, { agent: alice });
+  assert.deepEqual([...revealedAll.revealed].sort(), ["mcp__windows__Click", "mcp__windows__Screenshot"]);
+  assert.equal(revealedAll.tools.length, 2);
+  assert.match(String(revealedAll.note), /next step/u);
+
+  const after = await assemble(assembly, { agent: alice }, next);
+  assert.deepEqual(
+    after.tools.map((tool) => tool.name),
+    ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop", "bash"],
+    "the revealed capabilities join the next step",
+  );
+  assert.equal(guard({ name: "mcp__windows__Click", agent: alice }), undefined, "revealed tools dispatch again");
+
+  const bobBefore = await assemble(assembly, { agent: bob }, next);
+  assert.deepEqual(bobBefore.tools.map((tool) => tool.name), ["windows_desktop", "bash"], "another agent stays dark");
+  assert.match(guard({ name: "mcp__windows__Click", agent: bob }) ?? "", /hidden/u);
+
+  const clickOnly = reveal.execute({ query: "click" }, { agent: bob });
+  assert.deepEqual(clickOnly.revealed, ["mcp__windows__Click"], "a keyword reveals only what it matches");
+  const bobAfter = await assemble(assembly, { agent: bob }, next);
+  assert.deepEqual(bobAfter.tools.map((tool) => tool.name), ["mcp__windows__Click", "windows_desktop", "bash"]);
+
+  const rendered = reveal.output.render({}, revealedAll);
+  assert.match(rendered.map((part) => part.text).join("\n"), /Revealed 2 desktop capability/u);
+
+  const disabled = fakeResponse();
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":false}'), disabled);
+  assert.equal(disabled.status, 200);
+  const refused = reveal.execute({}, { agent: alice });
+  assert.deepEqual(refused.revealed, []);
+  assert.match(String(refused.note), /switched off/u);
+});
+
+
 test("the Computer Use switch truly hides the bridged tools and refuses them", async () => {
   const home = mkdtempSync(join(tmpdir(), "dsh-windows-mcp-gate-"));
   process.env.DSH_HOME = home;
@@ -332,25 +437,32 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
     sections: [],
     contexts: [],
     variables: {},
-    tools: [{ name: "mcp__windows__Screenshot" }, { name: "bash" }],
+    tools: [{ name: "mcp__windows__Screenshot" }, { name: "windows_desktop" }, { name: "bash" }],
   };
   const next = async () => assembly;
 
-  // Default OFF: the desktop is hidden and refused from the very first step.
+  // Default OFF: the desktop is hidden and refused from the very first step,
+  // including the reveal entry — turning the desktop off turns everything off.
   const offAssembly = await assemble(assembly, {}, next);
   assert.deepEqual(offAssembly.tools.map((tool) => tool.name), ["bash"], "desktop tools vanish from the model-facing list");
-  assert.equal(assembly.tools.length, 2, "the incoming assembly is never mutated");
+  assert.equal(assembly.tools.length, 3, "the incoming assembly is never mutated");
   assert.match(guard({ name: "mcp__windows__Click" }) ?? "", /Computer Use is switched off/u);
   assert.equal(guard({ name: "bash" }), undefined, "unrelated tools keep working");
 
-  // Flip the switch the way the pill does: both sides come back.
+  // Flip the switch the way the pill does: the reveal entry appears, the
+  // eighteen schemas still do not, and dispatch refuses until they are revealed.
   const post = fakeResponse();
   routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), post);
   assert.equal(post.status, 200);
 
   const onAssembly = await assemble(assembly, {}, next);
-  assert.equal(onAssembly.tools.length, 2, "the assembly passes through untouched");
-  assert.equal(guard({ name: "mcp__windows__Click" }), undefined, "an enabled desktop is callable again");
+  assert.deepEqual(
+    onAssembly.tools.map((tool) => tool.name),
+    ["windows_desktop", "bash"],
+    "an enabled desktop offers the reveal entry instead of the whole table",
+  );
+  assert.match(guard({ name: "mcp__windows__Click" }) ?? "", /hidden to save context/u);
+  assert.equal(guard({ name: "bash" }), undefined, "unrelated tools keep working");
 });
 
 test("disposing the registered tool does not throw", () => {
@@ -474,7 +586,11 @@ test("the pill is an accessible switch", () => {
 
   const registration = registrations.find((entry) => entry.meta.name === "conversation.input.left");
   const wrapper = registration.component({ sessionId: "session-1" });
-  const pill = wrapper.type(wrapper.props);
+  const cell = wrapper.type(wrapper.props);
+  assert.equal(cell.type, "div", "the cell wraps the pill so it can also host the dialog");
+  assert.equal(cell.props.className, "dwmc-host");
+  const pillElement = cell.children[0];
+  const pill = pillElement.type(pillElement.props);
   assert.equal(pill.type, "button");
   assert.equal(pill.props.role, "switch");
   assert.equal(pill.props.className, "dwmc-pill");
@@ -583,6 +699,43 @@ test("client bundle registers the settings page with a star link", () => {
   assert.equal(typeof rendered.type, "function", "the slot renders the settings page component");
   const page = rendered.type(rendered.props ?? {});
   assert.equal(typeof page.type, "string", "the page renders without throwing while loading");
+});
+
+test("the welcome dialog is a portal modal that fires on activation", () => {
+  const { exportsObject } = loadClientBundle();
+  const internals = exportsObject.__internals;
+  assert.equal(internals.WELCOME_STORAGE_KEY, "dsh-windows-mcp:welcome");
+  assert.equal(internals.WELCOME_PENDING_KEY, "dsh-windows-mcp:welcome-pending");
+  assert.equal(internals.WELCOME_EVENT, "dsh-windows-mcp:welcome");
+  assert.equal(typeof internals.requestWelcome, "function");
+  assert.equal(typeof internals.WelcomeDialog, "function");
+  assert.equal(typeof internals.WelcomeHost, "function");
+  assert.equal(typeof internals.ComposerEntry, "function");
+  assert.equal(internals.WELCOME_PORTAL, false, "no react-dom in this sandbox: the in-place fallback is used");
+
+  const css = internals.CSS;
+  assert.ok(css.includes(".dwmc-scrim{"), "the scrim is its own layer");
+  assert.ok(css.includes("--dsw-alias-bg-mask-1"), "the scrim takes the shell's mask colour");
+  assert.ok(css.includes("--dsw-mask-blur"), "the scrim takes the shell's blur");
+  assert.ok(css.includes(".dwmc-dialog{"), "the card is styled");
+  assert.ok(css.includes("background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 70%,transparent)"), "the card is a glass sheet");
+  assert.ok(css.includes("backdrop-filter:blur(18px) saturate(155%)"), "the card frosted");
+  assert.ok(css.includes("@keyframes dwmc-fadein"), "the scrim fades in");
+  assert.ok(css.includes("@keyframes dwmc-rise"), "the card rises in");
+  assert.ok(css.includes(".dwmc-star--hero{"), "the welcome star is the prominent variant");
+
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  assert.ok(source.includes('require("react-dom")'), "react-dom is tried for the portal");
+  assert.ok(source.includes("createPortal(scrim, document.body)"), "the dialog leaves #root");
+  assert.ok(source.includes('role: "dialog"'), "the surface is a real dialog for assistive tech");
+  assert.ok(source.includes('"aria-modal": "true"'), "the surface is modal");
+  assert.ok(source.includes("requestWelcome({ force: true })"), "the activation prompt always shows it");
+  assert.ok(source.includes("!!welcomeSeen()") === false, "sanity: no stray comparison");
+  assert.ok(source.includes("if (!welcomeSeen()) setOpen(true)") === false, "sanity: the mount check gained the pending flag");
+  assert.ok(source.includes("if (pending || !welcomeSeen()) setOpen(true)"), "the composer cell is the fallback trigger");
+  assert.ok(source.includes('localStorage.setItem(WELCOME_PENDING_KEY, "1")'), "an activation outside the page leaves a note");
+  assert.ok(source.includes('"Escape"'), "Escape closes it");
+  assert.ok(source.includes("onMouseDown"), "the backdrop closes it");
 });
 /* ------------------------------------------------------------------ *
  * dependency lifecycle

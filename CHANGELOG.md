@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-11-03
+
+### Added
+
+- **Lazy desktop tools (on by default).** The model is offered a single
+  `windows_desktop` entry instead of the eighteen `mcp__windows__*` schemas.
+  Calling it reveals the capabilities for that session — all of them, or a
+  keyword/name subset — and the revealed definitions join the tool table on the
+  next step. A hidden tool that gets called anyway is refused with a pointer to
+  the entry. Turning the setting off restores the old behaviour: every schema on
+  every step.
+- The settings page has a **Tool exposure** card for that switch, the doctor
+  report prints whether lazy tools are on, and `/state` reports
+  `desktopTools: { lazy, revealTool }` for diagnostics.
+- **A welcome dialog when the bundle is enabled.** It states the plugin name,
+  points at where the dependency and the parameters live (Settings → Desktop)
+  and at the composer switch, and offers a prominent *Star on GitHub* button.
+  It shows on every explicit enable (the activation card) and once per browser
+  otherwise. The dialog is portalled onto `document.body` (so no slot ancestor
+  can clip it) as a frosted sheet over a blurred scrim, traps focus, closes on
+  Escape/backdrop/button, sizes *Got it* and *Star* identically, and never
+  blocks the plugin when the DOM is unavailable.
+
+### Changed
+
+- With Computer Use off, `windows_desktop` is hidden along with every other
+  desktop tool, so the entry cannot be used to bypass the switch.
+
 ## [0.2.2] - 2026-11-01
 
 ### Security

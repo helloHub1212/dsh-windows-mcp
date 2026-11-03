@@ -131,9 +131,25 @@ Everything above, plus a few knobs that do not belong on a plugin card, lives in
 - **Dependency** — install, reinstall, update, roll back, and a **Point the bridge at it** action, with the live installer log and the patched row's target. The plugin's own page only carries a pointer to this card.
 - **Bridge** — `toolCallTimeoutMs`, the screenshot scale, the capture backend, upstream's flash overlay, and the three tools the bridge may exclude (`App`, `PowerShell`, `FileSystem`). These are written into the bridge row of your profile's `cordis.patch.yml` (timestamped backup first), so **they apply after DSH restarts**; the page states which row is in effect.
 - **Updates** — whether the plugin checks for a newer Windows-MCP on boot, and the mirror policy: `auto` keeps the measured ranking, an explicit mirror pins it, and the official index always stays as the last resort.
+- **Tool exposure** — **Lazy tools** (on by default): the model sees a single `windows_desktop` entry instead of eighteen schemas, calls it, and from the next step the desktop tools it revealed are in the tool table. Turn it off to send every schema on every step.
 - **About** — the plugin version, the repository link, and a **Star** button that opens the project on GitHub in a new tab.
 
 Saving is atomic (`$DSH_HOME/dsh-windows-mcp.settings.json`). A value out of range is clamped to its default and reported instead of being written silently, and a change that leaves the bridge row untouched does not rewrite the patch layer at all. **Revert** restores the defaults in the form.
+
+### Lazy tools
+
+Eighteen tool schemas cost context on every step, including the steps where nobody touches the desktop. With lazy tools on (the default), the model is offered one entry:
+
+> `windows_desktop` — *Reveal the Windows desktop capabilities (screenshots, clicking, typing, windows, clipboard, processes) for this session.*
+
+Calling it with no arguments reveals every capability for that session; `{"query": "screenshot"}` or `{"names": ["mcp__windows__Click"]}` narrows it. The definitions come back in the tool result and the revealed tools join the tool table on the next step, so the choice survives until the session ends. A hidden tool that gets called anyway is refused with a hint to reveal first.
+
+Revelation is per session, and the switch is honest both ways: with **Computer Use** off the entry is hidden too, and nothing can be revealed behind the human's back.
+
+### The welcome dialog
+
+The first time the bundle is enabled — and on every later enable from the Plugins page — a **Welcome to the DSH desktop automation plugin** dialog is raised over the whole window: a frosted sheet on a blurred scrim that leaves the app's own DOM and mounts on `document.body`, so nothing in the page can clip or bury it. It says, in three lines, where the dependency (install, update, rollback) and the parameters live (**Settings → Desktop**), and where the **Computer Use** switch is, and it carries a prominent **Star on GitHub** button. Escape, the backdrop or *Got it* dismisses it; focus is trapped inside while it is open, and a CLI/config enable shows it once per browser instead of every time.
+
 ## Verify
 
 ```text

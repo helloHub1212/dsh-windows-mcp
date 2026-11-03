@@ -69,7 +69,7 @@ test("settings normalisation clamps values and names what it replaced", () => {
       screenshotBackend: "dxcam",
       disableFlash: "no",
     },
-    plugin: { autoCheckUpdates: "yes", preferredMirror: "ustc" },
+    plugin: { autoCheckUpdates: "yes", preferredMirror: "ustc", lazyTools: "yes" },
   });
 
   assert.equal(settings.bridge.toolCallTimeoutMs, DEFAULT_SETTINGS.bridge.toolCallTimeoutMs);
@@ -79,10 +79,14 @@ test("settings normalisation clamps values and names what it replaced", () => {
   assert.equal(settings.bridge.disableFlash, DEFAULT_SETTINGS.bridge.disableFlash);
   assert.equal(settings.plugin.autoCheckUpdates, true);
   assert.equal(settings.plugin.preferredMirror, "ustc");
+  assert.equal(settings.plugin.lazyTools, true, "a non-boolean lazyTools falls back to the token-saving default");
 
-  for (const field of ["bridge.toolCallTimeoutMs", "bridge.excludeTools", "bridge.disableFlash", "plugin.autoCheckUpdates"]) {
+  for (const field of ["bridge.toolCallTimeoutMs", "bridge.excludeTools", "bridge.disableFlash", "plugin.autoCheckUpdates", "plugin.lazyTools"]) {
     assert.ok(problems.includes(field), `${field} is reported as replaced`);
   }
+
+  assert.equal(defaultSettings().plugin.lazyTools, true, "lazy tools ship on");
+  assert.equal(normalizeSettings({ plugin: { lazyTools: false } }).settings.plugin.lazyTools, false, "turning it off is honoured");
 });
 
 test("settings round-trip through the host file, and corruption falls back", () => {
