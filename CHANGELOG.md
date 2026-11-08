@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-11-08
+
+### Fixed
+
+- **The lazy desktop tools switch stays where you put it.** Turning it off
+  keeps it off after saving and after the page reloads, instead of flipping
+  back to on while the host already had the change stored.
+- **The Desktop entry in the settings rail shows only its own glyph again.**
+  The entry carries just its desktop-with-cursor icon; the shell default gear
+  no longer appears beside it.
+
 ## [0.2.3] - 2026-11-03
 
 ### Added

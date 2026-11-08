@@ -654,32 +654,12 @@ test("client styles keep the pill unfilled and use theme tokens only", () => {
 test("client bundle registers the settings page with a star link", () => {
   const { exportsObject } = loadClientBundle();
   assert.equal(exportsObject.__internals.SETTINGS_SLOT, "settings.section");
+  assert.equal(exportsObject.__internals.SETTINGS_NAV_ICON_SLOT, "settings.section.icon");
   assert.equal(exportsObject.__internals.SETTINGS_PATH, "/dsh-windows-mcp/settings");
   assert.equal(exportsObject.__internals.REPO_URL, "https://github.com/helloHub1212/dsh-windows-mcp");
-  const navIcon = exportsObject.__internals.SETTINGS_NAV_ICON;
-  assert.ok(navIcon.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"'), "the mask glyph is a 16px viewBox svg");
-  assert.match(navIcon, /fill-rule="evenodd"/u);
-  assert.ok(navIcon.endsWith("</svg>"), "the mask glyph is closed");
-  assert.equal(exportsObject.__internals.SETTINGS_NAV_ICON_MARKER, "data-dwmc-nav-icon");
-  const isOwn = exportsObject.__internals.isOwnSettingsNavRow;
-  assert.equal(isOwn("桌面控制", "桌面控制"), true);
-  assert.equal(isOwn("  Desktop  ", "Desktop"), true);
-  assert.equal(isOwn("桌面控制", "Desktop"), false);
-  assert.equal(isOwn("", "桌面控制"), false);
-  assert.equal(isOwn("桌面控制", ""), false);
-  const maskUrl = exportsObject.__internals.settingsNavMaskUrl();
-  assert.ok(maskUrl.startsWith("data:image/svg+xml,"));
-  assert.ok(maskUrl.includes("%3Csvg"), "the svg is percent-encoded for a CSS url()");
-  assert.ok(!maskUrl.includes("'"), "the url never breaks out of url('…')");
-  const iconCss = exportsObject.__internals.settingsNavIconCss(maskUrl);
-  assert.ok(iconCss.includes("[data-dwmc-nav-icon] > svg{display:none}"));
-  assert.ok(iconCss.includes("[data-dwmc-nav-icon]::before"));
-  assert.ok(iconCss.includes("background-color:currentColor"));
-  assert.ok(iconCss.includes("mask-image:url('data:image/svg+xml,"));
-  assert.ok(iconCss.includes("width:16px;height:16px"));
-  assert.ok(!/#[0-9a-f]{3}/iu.test(iconCss), "the glyph takes its colour from currentColor");
 
   assert.ok(exportsObject.__internals.CSS.includes(".dwmc-dep{"), "the embedded panel has its own layout hook");
+  assert.ok(!clientSource.includes("data-dwmc-nav-icon"), "the rail is the shell's to draw, not a DOM puppet");
 
   const registrations = [];
   exportsObject.apply({
@@ -699,6 +679,37 @@ test("client bundle registers the settings page with a star link", () => {
   assert.equal(typeof rendered.type, "function", "the slot renders the settings page component");
   const page = rendered.type(rendered.props ?? {});
   assert.equal(typeof page.type, "string", "the page renders without throwing while loading");
+
+  const glyph = registrations.find((entry) => entry.meta.name === "settings.section.icon");
+  assert.ok(glyph, "the nav glyph must be registered into the shell's own icon slot");
+  assert.equal(glyph.meta.id, section.meta.id, "the glyph is addressed by the matching section id");
+  assert.equal(typeof glyph.meta.order, "number");
+  assert.equal(typeof glyph.component, "function");
+  const drawing = glyph.component({ size: 16, active: true });
+  assert.equal(drawing.type, "svg", "the glyph is an inline svg the shell can size");
+  assert.equal(drawing.props.width, 16);
+  assert.equal(drawing.props.height, 16);
+  assert.equal(drawing.props.viewBox, "0 0 16 16");
+  assert.equal(drawing.props.fill, "currentColor", "the glyph takes its colour from the nav row");
+  assert.equal(drawing.props["aria-hidden"], "true", "the label already names the row");
+  assert.equal(drawing.children.length, 3, "screen, stand stem and stand base");
+  assert.equal(glyph.component({}).props.width, 16, "the shell's square edge falls back to 16px");
+});
+
+test("the settings draft keeps the lazy tools switch", () => {
+  const { exportsObject } = loadClientBundle();
+  const clone = exportsObject.__internals.cloneSettings;
+
+  assert.equal(clone({}).plugin.lazyTools, true, "an untouched draft keeps lazy tools on");
+  assert.equal(clone({ plugin: {} }).plugin.lazyTools, true, "a missing switch falls back to the default");
+  assert.equal(clone({ plugin: { lazyTools: false } }).plugin.lazyTools, false, "an off switch survives the copy");
+  assert.equal(clone({ plugin: { lazyTools: "no" } }).plugin.lazyTools, true, "a non-boolean reads as the default");
+
+  const copied = clone({ plugin: { lazyTools: false }, bridge: { toolCallTimeoutMs: 9000 } });
+  assert.equal(copied.bridge.toolCallTimeoutMs, 9000, "the rest of the settings still copy over");
+
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  assert.ok(source.includes("checked: draft.plugin.lazyTools !== false"), "the checkbox reads the drafted switch");
 });
 
 test("the welcome dialog is a portal modal that fires on activation", () => {
