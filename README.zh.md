@@ -29,11 +29,11 @@ DSH agent
 | `mcp__windows__Click` / `Move` / `Scroll` | 鼠标输入 |
 | `mcp__windows__Type` / `Shortcut` | 键盘输入 |
 | `mcp__windows__Wait` / `WaitFor` | 等待固定时长，或等到某个界面条件成立 |
-| `mcp__windows__Scrape` | 从窗口里抽取文本 |
+| `mcp__windows__Scrape` | 抓取网页内容；也可从当前浏览器标签页抽取 DOM |
 | `mcp__windows__MultiSelect` / `MultiEdit` | 批量选中元素 / 批量编辑 |
 | `mcp__windows__Clipboard` | 读写剪贴板 |
 | `mcp__windows__Process` | 枚举、启动、结束进程 |
-| `mcp__windows__Notification` | 读取通知 |
+| `mcp__windows__Notification` | 弹出 Windows 系统通知 |
 | `mcp__windows__Registry` | 读写注册表 |
 | `mcp__windows__ControlStatus` | 控制环状态。**无法关闭**——上游强制保留 |
 | `mcp__windows__App` | 启动/切换应用。*默认排除*（上游只在英文版 Windows 上稳定支持） |

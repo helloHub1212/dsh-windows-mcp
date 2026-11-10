@@ -223,6 +223,7 @@ test("the host registers the Computer Use state route and answers GET", async ()
   assert.equal(typeof body.dependency, "object", "the page reads dependency status from the same route");
   assert.equal(typeof body.dependency.installed, "boolean");
   assert.equal(body.prepare.phase, "idle", "nothing is installing yet");
+  assert.equal(body.update.versions.updateAvailable, false, "no managed slot must not mean an update is waiting");
 
   const post = fakeResponse();
   route.handler(fakeRequest("POST", '{"enabled":true}'), post);
@@ -237,6 +238,14 @@ test("the host registers the Computer Use state route and answers GET", async ()
   const wrongMethod = fakeResponse();
   route.handler({ method: "DELETE" }, wrongMethod);
   assert.equal(wrongMethod.status, 405);
+});
+
+test("an update is only announced over the version actually in use", async () => {
+  const { updateAvailability } = await import("../lib/updater.js");
+  assert.equal(updateAvailability("0.8.8", "0.8.8"), false, "the running build is already the latest");
+  assert.equal(updateAvailability("0.8.8", "0.8.7"), true);
+  assert.equal(updateAvailability("0.8.8", null), false, "nothing installed is not an update waiting");
+  assert.equal(updateAvailability(null, "0.8.8"), false, "no check has run yet");
 });
 
 test("a mutation without the GUI session cookie is refused", async () => {
@@ -685,16 +694,54 @@ test("the pill and its status copy are Chinese when the host prefers it", () => 
   assert.equal(pill.props["aria-label"], "AI 控制电脑", "the accessible name matches the visible label");
   const label = pill.children.find((child) => child && child.props && child.props.className === "dwmc-label");
   assert.equal(label.children[0], "AI 控制电脑");
-  assert.ok(pill.props.title.startsWith("AI 控制权 · 检测中…"), "the status line is localized too");
-  assert.ok(pill.props.title.includes("点击切换"));
+  assert.ok(pill.props.title.startsWith("正在确认控制权…"), "the status line is localized too");
+  assert.ok(!pill.props.title.includes("点击切换"), "the switch affordance is the pill itself, not a line of copy");
 
   const tooltip = exportsObject.__internals.tooltipFor;
   assert.ok(tooltip({ phase: "ready", enabled: false, bridged: 0, busy: false, error: null }).includes("AI 未获得控制权"));
   assert.ok(
-    tooltip({ phase: "ready", enabled: true, bridged: 3, busy: false, error: null }).includes("AI 正在控制这台电脑 · 3 个桌面工具可用"),
-    "the tool count is interpolated into the Chinese sentence",
+    tooltip({ phase: "ready", enabled: true, bridged: 3, busy: false, error: null }).includes("AI 正在控制这台电脑 · 3 个桌面工具已注册"),
+    "the registered tool count is interpolated into the Chinese sentence",
   );
-  assert.ok(tooltip({ phase: "error", enabled: false, bridged: 0, busy: false, error: "boom" }).includes("无法连接宿主（boom）"));
+  const unreachable = tooltip({ phase: "error", enabled: false, bridged: 0, busy: false, error: "boom" });
+  assert.ok(unreachable.includes("无法连接宿主（boom）"));
+  assert.ok(unreachable.includes("请点击重试"), "the retry line survives, because the same click now does something else");
+});
+
+test("the tooltip carries the state and the cost, not a capability list", () => {
+  const { exportsObject } = loadClientBundle("en-US");
+  exportsObject.apply({
+    get(name) {
+      return name === "locale" ? { getLocale() { return { active: "zh-CN" }; } } : undefined;
+    },
+    slots: {
+      inject(_name, callback) { callback(); },
+      register() { return {}; },
+    },
+  });
+  const tooltip = exportsObject.__internals.tooltipFor;
+  const view = { phase: "ready", busy: false, error: null };
+
+  const off = tooltip({ ...view, enabled: false, bridged: 0 });
+  assert.equal(off.split("\n").length, 1, "off is one line: the state, which already carries the consequence");
+  assert.ok(off.includes("AI 未获得控制权"));
+  assert.ok(!/截屏|剪贴板|注册表|进程|键盘/u.test(off), "no capability list, so there is nothing to drift out of date");
+  assert.ok(!/Computer Use|agent/u.test(off), "no English product name or half-translated noun is left in the Chinese tooltip");
+
+  const on = tooltip({ ...view, enabled: true, bridged: 18 });
+  assert.deepEqual(on.split("\n"), [
+    "AI 正在控制这台电脑 · 18 个桌面工具已注册",
+    "关闭后，这些工具会对模型不可见，调用会被拒绝。",
+  ], "on is the state plus what turning it off would cost");
+
+  const empty = tooltip({ ...view, enabled: true, bridged: 0 });
+  assert.ok(!empty.includes("关闭后"), "a switch with nothing behind it has nothing to lose");
+
+  const loading = tooltip({ ...view, phase: "loading", enabled: undefined });
+  assert.equal(loading.split("\n").length, 1, "an unconfirmed switch reads as off");
+
+  const unreachable = tooltip({ ...view, phase: "error", enabled: false, bridged: 0, error: "boom" });
+  assert.deepEqual(unreachable.split("\n"), ["无法连接宿主（boom）", "请点击重试"]);
 });
 
 test("a language switch reaches the pill through the locale service", () => {
@@ -783,15 +830,37 @@ test("client styles keep the pill unfilled and use theme tokens only", () => {
   const baseRule = /\.dwmc-pill\{[^}]*\}/u.exec(css);
   assert.ok(baseRule, "the pill base rule must exist");
   assert.ok(!/border:\s*1px/u.test(baseRule[0]), "the pill is borderless");
+  assert.match(css, /border-radius:var\(--dsw-radius-sm\)/u, "the radius matches the shell's composer select");
+  const hoverRule = /@media \(hover:hover\)\{\.dwmc-pill:hover[^{]*\{[^}]*\}/u.exec(css);
+  assert.ok(hoverRule, "the pill has a hover wash");
+  assert.match(hoverRule[0], /--dsw-alias-interactive-bg-hover/u, "the wash is the shell's own hover token");
+  assert.ok(!/(?:^|[;{ ])color:/u.test(hoverRule[0]), "the shell never recolours the label on hover");
   assert.ok(!/#[0-9a-fA-F]{3,8}\b/u.test(css), "no literal colours, the theme must supply them");
 });
 
-test("client bundle registers the settings page with a star link", () => {
+test("a long field hint wraps inside its label instead of pushing the control down", () => {
+  const { exportsObject } = loadClientBundle();
+  const label = /\.dwmc-field__label\{[^}]*\}/u.exec(exportsObject.__internals.CSS);
+  assert.ok(label, "the field label rule exists");
+  assert.match(
+    label[0],
+    /flex:1 1 0/u,
+    "with the default `auto` basis the hint's full width overflows the row and wraps the checkbox onto its own line",
+  );
+});
+
+test("client bundle registers the settings page with brand links in its header", () => {
   const { exportsObject } = loadClientBundle();
   assert.equal(exportsObject.__internals.SETTINGS_SLOT, "settings.section");
   assert.equal(exportsObject.__internals.SETTINGS_NAV_ICON_SLOT, "settings.section.icon");
   assert.equal(exportsObject.__internals.SETTINGS_PATH, "/dsh-windows-mcp/settings");
   assert.equal(exportsObject.__internals.REPO_URL, "https://github.com/helloHub1212/dsh-windows-mcp");
+  assert.equal(exportsObject.__internals.NPM_URL, "https://www.npmjs.com/package/dsh-windows-mcp");
+  assert.ok(clientSource.includes('brandLink("GitHub", REPO_URL)'), "the repo link became a header pill");
+  assert.ok(clientSource.includes('brandLink("npm", NPM_URL)'), "the package link sits beside it");
+  assert.ok(!clientSource.includes("starHint"), "the star nag is gone with the about card");
+  assert.ok(clientSource.includes('className: "dwmc-set__link-icon"'), "each brand pill carries its mark");
+  assert.ok(clientSource.includes("BRAND_ICON_PATHS"), "the marks are inlined: a client bundle cannot import the host's icons");
 
   assert.ok(exportsObject.__internals.CSS.includes(".dwmc-dep{"), "the embedded panel has its own layout hook");
   assert.ok(!clientSource.includes("data-dwmc-nav-icon"), "the rail is the shell's to draw, not a DOM puppet");
@@ -845,6 +914,88 @@ test("the settings draft keeps the lazy tools switch", () => {
 
   const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
   assert.ok(source.includes("checked: draft.plugin.lazyTools !== false"), "the checkbox reads the drafted switch");
+});
+
+test("ticking a settings checkbox always means the feature is on", () => {
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  // `disableFlash` is stored as a negative while its label is positive, so a
+  // naive `checked: draft.bridge.disableFlash` inverts the whole control.
+  assert.ok(source.includes("checked: draft.bridge.disableFlash !== true"), "the flash box reads the positive sense");
+  assert.ok(
+    source.includes('update("bridge", "disableFlash", event.target.checked !== true)'),
+    "unticking turns the border on, not the stored flag",
+  );
+  for (const hint of ["flashHint", "excludeHint", "autoCheckHint", "lazyHint"]) {
+    assert.match(source, new RegExp(`${hint}: "[^"]*勾选后`, "u"), `${hint} must say what ticking does`);
+  }
+});
+
+test("the settings payload carries the values behind Restore defaults", async () => {
+  const home = mkdtempSync(join(tmpdir(), "dsh-windows-mcp-defaults-"));
+  process.env.DSH_HOME = home;
+  const fresh = await import(`../lib/index.js?defaults=${Date.now()}`);
+  const routes = new Map();
+  fresh.apply({
+    logger: { warn() {} },
+    inject(services, callback) {
+      if (services.includes("webServer")) {
+        callback({
+          webServer: { register(candidate) { routes.set(candidate.path, candidate); return () => {}; } },
+          get: () => undefined,
+        });
+        return;
+      }
+      callback({ tools: { register() { return () => {}; }, guard() { return () => {}; } } });
+    },
+  });
+
+  const route = routes.get("/dsh-windows-mcp/settings");
+  assert.ok(route, "the settings route must be registered");
+  const get = fakeResponse();
+  route.handler({ method: "GET" }, get);
+  assert.equal(get.status, 200);
+  const body = JSON.parse(get.body);
+  assert.equal(typeof body.defaults, "object", "the page cannot restore what it is not told");
+  assert.equal(body.defaults.plugin.lazyTools, true);
+  assert.equal(body.defaults.bridge.disableFlash, true, "the flash border is off by default");
+});
+
+test("a reloaded bundle replaces its stylesheet instead of trusting the old one", () => {
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  assert.ok(
+    !source.includes("if (document.getElementById(STYLE_ID) !== null) return;"),
+    "an early return would leave new markup wearing the previous rules",
+  );
+  assert.ok(source.includes("if (element.textContent !== CSS) element.textContent = CSS;"), "the rules are rewritten in place");
+});
+
+test("the settings page says nothing about its own saving", () => {
+  const { exportsObject } = loadClientBundle();
+  const css = exportsObject.__internals.CSS;
+  assert.ok(!/\.dwmc-status\{/u.test(css), "no save-state chip is styled");
+
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  for (const gone of ["settingsSaving", "settingsSaved", "settingsFailed", "settingsAutoSave", "saveTone"]) {
+    assert.ok(!source.includes(gone), `${gone} must not survive the removal`);
+  }
+  assert.ok(source.includes('notes.length === 0'), "the trailing row is conditional");
+  assert.ok(source.includes('className: "dwmc-set__status" }, notes'), "it now carries only actionable notes");
+});
+
+test("the settings page saves itself and keeps only the defaults action at the end", () => {
+  const { exportsObject } = loadClientBundle();
+  const css = exportsObject.__internals.CSS;
+  assert.match(css, /\.dwmc-set__footer\{[^}]*justify-content:flex-end/u, "the remaining action sits on the right");
+  assert.ok(!/\.dwmc-set__savebar\{/u.test(css), "nothing floats over the form any more");
+
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  assert.ok(source.includes("saveRef.current(payload)"), "changes reach the host without a save button");
+  assert.match(source, /\}, 700\);/u, "the push is debounced instead of firing on every keystroke");
+  assert.ok(!/settingsSave:/u.test(source), "the save copy is gone with the button");
+  assert.ok(!source.includes('key: "save"'), "there is no save button to press");
+  assert.ok(!source.includes("t.settingsDiscard"), "nothing is left to discard");
+  assert.ok(source.includes("settingsDefaultsConfirm"), "restoring defaults asks before it drops the draft");
+  assert.ok(source.includes('confirm === "defaults"'), "the confirmation replaces the footer buttons instead of stacking");
 });
 
 test("the welcome dialog is a portal modal that fires on activation", () => {

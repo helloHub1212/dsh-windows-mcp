@@ -29,11 +29,11 @@ With the plugin installed and Windows-MCP reachable, these tools appear in the t
 | `mcp__windows__Click` / `Move` / `Scroll` | Mouse input |
 | `mcp__windows__Type` / `Shortcut` | Keyboard input |
 | `mcp__windows__Wait` / `WaitFor` | Sleep, or wait until a UI condition holds |
-| `mcp__windows__Scrape` | Extract text from a window |
+| `mcp__windows__Scrape` | Fetch a web page's content; optionally scrape the active tab's DOM |
 | `mcp__windows__MultiSelect` / `MultiEdit` | Batch element selection / batch edits |
 | `mcp__windows__Clipboard` | Read and write the clipboard |
 | `mcp__windows__Process` | List, start and stop processes |
-| `mcp__windows__Notification` | Read notifications |
+| `mcp__windows__Notification` | Raise a Windows toast notification |
 | `mcp__windows__Registry` | Read and write registry values |
 | `mcp__windows__ControlStatus` | Control-loop state. **Cannot be disabled** — upstream force-keeps it |
 | `mcp__windows__App` | Launch/switch apps. *Excluded by default* (upstream only supports it reliably on an English Windows install) |
