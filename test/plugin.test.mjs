@@ -486,9 +486,12 @@ test("disposing the registered tool does not throw", () => {
  * ------------------------------------------------------------------ */
 
 /** Evaluate the client bundle with a stubbed module loader and React. */
-function loadClientBundle() {
+function loadClientBundle(language = "en-US") {
   let spec = null;
-  const windowStub = { __ModuleLoader__: { load(candidate) { spec = candidate; } } };
+  const windowStub = {
+    __ModuleLoader__: { load(candidate) { spec = candidate; } },
+    navigator: { language },
+  };
   // eslint-disable-next-line no-new-func -- the bundle is a plain CJS factory
   new Function("window", clientSource)(windowStub);
   assert.ok(spec, "the bundle must call __ModuleLoader__.load");
@@ -516,7 +519,9 @@ function loadClientBundle() {
       return element;
     },
     useState(initial) { return [typeof initial === "function" ? initial() : initial, () => {}]; },
-    useEffect() {},
+    // Effects run inline: the assertions below check the subscriptions the
+    // components register on mount, which the real React also runs.
+    useEffect(effect) { return effect(); },
     useCallback(callback) { return callback; },
   };
   const exportsObject = spec.factory((name) => {
@@ -526,12 +531,34 @@ function loadClientBundle() {
   return { spec, exportsObject, elements };
 }
 
+/** Register the client bundle against a fake context and render the pill. */
+function mountPill(exportsObject, extras = {}) {
+  const registrations = [];
+  const ctx = Object.assign(
+    {
+      slots: {
+        inject(_name, callback) { callback(); },
+        register(meta, component) { registrations.push({ meta, component }); return { meta, component }; },
+      },
+    },
+    extras,
+  );
+  exportsObject.apply(ctx);
+  const registration = registrations.find((entry) => entry.meta.name === "conversation.input.left");
+  assert.ok(registration, "the composer pill must be registered");
+  const wrapper = registration.component({ sessionId: "session-1" });
+  const cell = wrapper.type(wrapper.props);
+  const pillElement = cell.children[0];
+  return { ctx, registrations, pill: pillElement.type(pillElement.props) };
+}
+
 test("client bundle declares its id, slot and inject list", () => {
   const { spec, exportsObject } = loadClientBundle();
   assert.equal(spec.id, "dsh-windows-mcp");
   assert.equal(typeof exportsObject.apply, "function");
   assert.deepEqual(exportsObject.inject, ["slots"], "only inject the slot service");
-  assert.equal(exportsObject.__internals.LABEL, "Computer Use");
+  assert.equal(typeof exportsObject.__internals.copy, "function");
+  assert.equal(exportsObject.__internals.copy().pillLabel, "Computer Use", "English is the fallback");
   assert.equal(exportsObject.__internals.apiUrl("/dsh-windows-mcp/state"), "/dsh-windows-mcp/state");
 });
 
@@ -599,6 +626,70 @@ test("the pill is an accessible switch", () => {
   assert.equal(typeof pill.props.title, "string");
   assert.ok(pill.props.title.includes("Computer Use"));
   assert.equal(typeof pill.props.onClick, "function");
+});
+
+test("the pill and its status copy are Chinese when the host prefers it", () => {
+  const { exportsObject } = loadClientBundle("en-US");
+  const { pill } = mountPill(exportsObject, {
+    get(name) {
+      return name === "locale"
+        ? { getLocale() { return { active: "zh-CN" }; } }
+        : undefined;
+    },
+  });
+
+  assert.equal(pill.props["aria-label"], "AI 控制电脑", "the accessible name matches the visible label");
+  const label = pill.children.find((child) => child && child.props && child.props.className === "dwmc-label");
+  assert.equal(label.children[0], "AI 控制电脑");
+  assert.ok(pill.props.title.startsWith("AI 控制权 · 检测中…"), "the status line is localized too");
+  assert.ok(pill.props.title.includes("点击切换"));
+
+  const tooltip = exportsObject.__internals.tooltipFor;
+  assert.ok(tooltip({ phase: "ready", enabled: false, bridged: 0, busy: false, error: null }).includes("AI 未获得控制权"));
+  assert.ok(
+    tooltip({ phase: "ready", enabled: true, bridged: 3, busy: false, error: null }).includes("AI 正在控制这台电脑 · 3 个桌面工具可用"),
+    "the tool count is interpolated into the Chinese sentence",
+  );
+  assert.ok(tooltip({ phase: "error", enabled: false, bridged: 0, busy: false, error: "boom" }).includes("无法连接宿主（boom）"));
+});
+
+test("a language switch reaches the pill through the locale service", () => {
+  const { exportsObject } = loadClientBundle("en-US");
+  let active = "zh-CN";
+  let listener = null;
+  let unsubscribed = false;
+  const { pill } = mountPill(exportsObject, {
+    get(name) {
+      return name === "locale"
+        ? {
+            getLocale() { return { active }; },
+            subscribe(callback) {
+              listener = callback;
+              return () => { unsubscribed = true; };
+            },
+          }
+        : undefined;
+    },
+  });
+
+  assert.equal(pill.props["aria-label"], "AI 控制电脑");
+  assert.equal(typeof listener, "function", "the pill subscribes so a switch repaints it at once");
+  active = "en-US";
+  listener();
+  assert.equal(exportsObject.__internals.copy().pillLabel, "Computer Use", "the same subscription flips the copy back");
+  assert.equal(unsubscribed, false, "the subscription stays live for the next switch");
+});
+
+test("the pill stays English without a locale service and follows the browser otherwise", () => {
+  const english = loadClientBundle("en-US");
+  assert.equal(mountPill(english.exportsObject).pill.props["aria-label"], "Computer Use");
+  assert.ok(mountPill(english.exportsObject).pill.props.title.includes("Computer Use — checking…"));
+
+  const chinese = loadClientBundle("zh-CN");
+  assert.equal(mountPill(chinese.exportsObject).pill.props["aria-label"], "AI 控制电脑");
+
+  const other = loadClientBundle("ja-JP");
+  assert.equal(mountPill(other.exportsObject).pill.props["aria-label"], "Computer Use", "only Chinese is translated");
 });
 
 test("the plugin card points at the settings page instead of duplicating the installer", () => {

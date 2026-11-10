@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-11-10
+
+### Changed
+
+- **The composer switch and its tooltip speak the DSH language.** With a
+  Chinese DSH the pill reads **AI 控制电脑**; its status line, tooltip and
+  accessible name are Chinese too (“AI 正在控制这台电脑 · 6 个桌面工具可用”,
+  “AI 未获得控制权 · 桌面工具对模型隐藏，调用会被拒绝”). The wording follows
+  DSH's own language setting, so switching the language inside DSH updates the
+  pill at once instead of on the next poll. Every other language keeps the
+  English copy, and when DSH exposes no language the browser language decides.
+
 ## [0.2.4] - 2026-11-08
 
 ### Fixed
