@@ -302,13 +302,14 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   const fresh = await import(`../lib/index.js?lazy=${Date.now()}`);
 
   const routes = new Map();
-  let preStep = null;
+  const events = new Map();
   let guard = null;
   const registered = [];
   const restricted = new Map();
-  const catalog = [
+  let catalog = [
     ["mcp__windows__Screenshot", { description: "Take a screenshot", parameters: { type: "object", properties: {} } }],
     ["mcp__windows__Click", { description: "Click a point", parameters: { type: "object", properties: { loc: { type: "array" } } } }],
+    ["windows_desktop", {}],
   ];
   const tools = {
     schemas: () => catalog,
@@ -323,7 +324,8 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   };
   // The host hands `system-prompt/assemble` only `{ sections, contexts,
   // variables }` and merges `tools` in afterwards, so the gate has to work
-  // through the agent-scoped tools service instead.
+  // through the agent-scoped tools service instead. Every lifecycle event
+  // carries the agent as `payload.agent`, never as the payload itself.
   const agentFor = (id) => ({
     id,
     ctx: {
@@ -339,7 +341,7 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   fresh.apply({
     logger: { warn() {} },
     on(event, listener) {
-      if (event === "agent/pre-step") preStep = listener;
+      events.set(event, listener);
     },
     inject(services, callback) {
       if (services.includes("webServer")) {
@@ -362,10 +364,15 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), enabled);
   assert.equal(enabled.status, 200);
 
+  const preStep = events.get("agent/pre-step");
+  const created = events.get("agent/created");
+  assert.equal(typeof preStep, "function", "the agent step must stay hooked as a safety net");
+  assert.equal(typeof created, "function", "a created agent must be restricted before its first step");
+
   const alice = agentFor("alice");
   const bob = agentFor("bob");
 
-  preStep(alice);
+  created({ agent: alice, source: "user" });
   assert.deepEqual(
     restricted.get("alice"),
     ["mcp__windows__Screenshot", "mcp__windows__Click"],
@@ -378,11 +385,13 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   assert.equal(revealedAll.tools.length, 2);
   assert.match(String(revealedAll.note), /next step/u);
 
-  preStep(alice);
+  // The reveal executes inside the step; the tool set is resolved before
+  // `agent/pre-step`, so the restriction must drop right here rather than wait
+  // for the next step.
   assert.equal(restricted.has("alice"), false, "the revealed capabilities join the next step");
   assert.equal(guard({ name: "mcp__windows__Click", agent: alice }), undefined, "revealed tools dispatch again");
 
-  preStep(bob);
+  preStep({ agent: bob, messages: [], signal: undefined });
   assert.deepEqual(
     restricted.get("bob"),
     ["mcp__windows__Screenshot", "mcp__windows__Click"],
@@ -392,8 +401,17 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
 
   const clickOnly = reveal.execute({ query: "click" }, { agent: bob });
   assert.deepEqual(clickOnly.revealed, ["mcp__windows__Click"], "a keyword reveals only what it matches");
-  preStep(bob);
   assert.deepEqual(restricted.get("bob"), ["mcp__windows__Screenshot"], "only the unrevealed name stays hidden");
+
+  // The bridge registers its tools after the agent exists; a late registration
+  // must reach the restriction too.
+  catalog = [...catalog, ["mcp__windows__Scroll", {}]];
+  events.get("tools/change")();
+  assert.deepEqual(
+    [...restricted.get("bob")].sort(),
+    ["mcp__windows__Screenshot", "mcp__windows__Scroll"],
+    "a tool registered after the agent is hidden as well",
+  );
 
   const rendered = reveal.output.render({}, revealedAll);
   assert.match(rendered.map((part) => part.text).join("\n"), /Revealed 2 desktop capability/u);
@@ -401,6 +419,11 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   const disabled = fakeResponse();
   routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":false}'), disabled);
   assert.equal(disabled.status, 200);
+  assert.deepEqual(
+    [...restricted.get("alice")].sort(),
+    ["mcp__windows__Click", "mcp__windows__Screenshot", "mcp__windows__Scroll", "windows_desktop"],
+    "switching off hides everything immediately, without waiting for a step",
+  );
   const refused = reveal.execute({}, { agent: alice });
   assert.deepEqual(refused.revealed, []);
   assert.match(String(refused.note), /switched off/u);
@@ -413,7 +436,7 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
   const fresh = await import(`../lib/index.js?gate=${Date.now()}`);
 
   const routes = new Map();
-  let preStep = null;
+  const events = new Map();
   let guard = null;
   const restricted = new Map();
   const catalog = [
@@ -442,7 +465,7 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
   fresh.apply({
     logger: { warn() {} },
     on(event, listener) {
-      if (event === "agent/pre-step") preStep = listener;
+      events.set(event, listener);
     },
     inject(services, callback) {
       if (services.includes("webServer")) {
@@ -456,12 +479,13 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
     },
   });
 
+  const preStep = events.get("agent/pre-step");
   assert.equal(typeof preStep, "function", "the agent step must be hooked, not prompt assembly");
   assert.equal(typeof guard, "function", "a dispatch guard must be installed");
 
   // Default OFF: the desktop is hidden and refused from the very first step,
   // including the reveal entry — turning the desktop off turns everything off.
-  preStep(agent);
+  preStep({ agent, messages: [], signal: undefined });
   assert.deepEqual(
     restricted.get("gate"),
     ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop"],
@@ -476,11 +500,10 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
   routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), post);
   assert.equal(post.status, 200);
 
-  preStep(agent);
   assert.deepEqual(
     restricted.get("gate"),
     ["mcp__windows__Screenshot", "mcp__windows__Click"],
-    "an enabled desktop offers the reveal entry instead of the whole table",
+    "an enabled desktop offers the reveal entry instead of the whole table, on the very next request",
   );
   assert.match(guard({ name: "mcp__windows__Click" }) ?? "", /hidden to save context/u);
   assert.equal(guard({ name: "bash" }), undefined, "unrelated tools keep working");
