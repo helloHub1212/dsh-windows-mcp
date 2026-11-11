@@ -518,6 +518,101 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
   assert.equal(guard({ name: "bash" }), undefined, "unrelated tools keep working");
 });
 
+test("the tool gate hands the step waterfall back and never recurses", async () => {
+  const home = mkdtempSync(join(tmpdir(), "dsh-windows-mcp-waterfall-"));
+  process.env.DSH_HOME = home;
+  const fresh = await import(`../lib/index.js?waterfall=${Date.now()}`);
+
+  const routes = new Map();
+  const events = new Map();
+  const registered = [];
+  let restrictCalls = 0;
+  let disposed = 0;
+  let restricted = null;
+  const catalog = [
+    ["mcp__windows__Screenshot", {}],
+    ["mcp__windows__Click", {}],
+    ["windows_desktop", {}],
+    ["bash", {}],
+  ];
+
+  // The real tools service emits `tools/change` synchronously from inside
+  // `restrict()` (ScopedLayers.effect); the fake must do the same, otherwise a
+  // self-triggered recursion stays invisible to the test.
+  const announceChange = () => {
+    const listener = events.get("tools/change");
+    if (typeof listener === "function") listener();
+  };
+
+  const tools = {
+    schemas: () => catalog,
+    register(definition) { registered.push(definition); return () => {}; },
+    guard() { return () => {}; },
+    restrict(filter) {
+      restrictCalls += 1;
+      restricted = filter.deny ?? [];
+      announceChange();
+      return () => { disposed += 1; };
+    },
+  };
+  const agent = { id: "waterfall", ctx: { get: (key) => (key === "tools" ? tools : undefined) } };
+
+  fresh.apply({
+    logger: { warn() {} },
+    on(event, listener) { events.set(event, listener); },
+    inject(services, callback) {
+      if (services.includes("webServer")) {
+        callback({
+          webServer: { register(candidate) { routes.set(candidate.path, candidate); return () => {}; } },
+          get: (key) => (key === "tools" ? tools : key === "agents" ? { list: () => [agent] } : undefined),
+        });
+        return;
+      }
+      callback({ tools });
+    },
+  });
+
+  events.get("agent/created")({ agent, source: "user" });
+  assert.equal(restrictCalls, 1, "one decision change registers one restriction, not a recursive stack");
+  assert.deepEqual(
+    restricted,
+    ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop"],
+    "the desktop starts hidden",
+  );
+
+  // The host dispatches `agent/pre-step` as a Cordis waterfall and reads
+  // `decision.kind`; a listener that keeps the chain to itself kills the turn
+  // before it starts. The built-in decision must come back untouched.
+  const preStep = events.get("agent/pre-step");
+  let nextCalls = 0;
+  const decision = await preStep({ agent, messages: [], signal: undefined }, () => {
+    nextCalls += 1;
+    return Promise.resolve({ kind: "enter", messages: [] });
+  });
+  assert.equal(nextCalls, 1, "the built-in step decision must be reached");
+  assert.equal(decision?.kind, "enter", "the waterfall result is preserved");
+
+  // Same step, same decision: nothing is re-registered.
+  await preStep({ agent, messages: [], signal: undefined }, () => Promise.resolve({ kind: "enter", messages: [] }));
+  assert.equal(restrictCalls, 1);
+
+  // Enabling the switch relaxes the restriction; the old handle must be
+  // released instead of stacking another deny mask on the agent scope.
+  const enabled = fakeResponse();
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), enabled);
+  assert.equal(enabled.status, 200);
+  assert.equal(disposed, 1, "the previous restriction is released");
+  assert.equal(restrictCalls, 2, "the relaxed decision registers exactly one new layer");
+  assert.deepEqual(restricted, ["mcp__windows__Screenshot", "mcp__windows__Click"]);
+
+  // Revealing everything empties the deny list: the layer is disposed, never
+  // replaced by an empty restrict() the host may reject.
+  const reveal = registered.find((definition) => definition.name === "windows_desktop");
+  reveal.execute({}, { agent });
+  assert.equal(restrictCalls, 2, "an empty deny list registers nothing");
+  assert.equal(disposed, 2, "the empty decision still removes the old layer");
+});
+
 test("disposing the registered tool does not throw", () => {
   assert.doesNotThrow(() => {
     apply({
