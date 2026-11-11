@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { uvInstallEnvironment, spawnUvInstall, createPrepare } from "../lib/dependency.js";
+import { createPrepare, installFailureDetail, spawnUvInstall, uvInstallEnvironment, UV_PYTHON_REQUIREMENT } from "../lib/dependency.js";
 import {
   activateVersion,
   activeInstall,
@@ -92,6 +92,9 @@ function fakeSpawner(root, options = {}) {
       child.killed = true;
     };
     setImmediate(() => {
+      if (typeof options.outputFor === "function") {
+        for (const line of options.outputFor(settings)) settings.onLine(line + "\n");
+      }
       if (typeof options.failFor === "function" && options.failFor(settings) === true) {
         child.emit("close", 2);
         return;
@@ -384,6 +387,81 @@ test("an install falls back to the next mirror when one fails", async () => {
   }
 });
 
+test("an install stops the mirror walk when the failure is not mirror-specific", async () => {
+  const home = temporaryHome();
+  try {
+    const spawnInstall = fakeSpawner(managedToolchainRoot(home), {
+      failFor: () => true,
+      outputFor: () => [
+        "Resolved 86 packages in 12ms",
+        "error: Failed to build 'pyyaml==6.0.3'",
+        "  Caused by: Microsoft Visual C++ 14.0 is required",
+      ],
+    });
+    const updater = createUpdater({
+      home,
+      warn: () => {},
+      resolver: () => "C:\\fake\\uv.exe",
+      pinned: "0.8.8",
+      writeBridge: () => ({ ok: true, restartRequired: true }),
+      probe: async () => ({
+        results: [
+          { id: "ustc", label: "USTC", ok: true, speedBps: 2 * 1024 * 1024, indexMs: 10 },
+          { id: "aliyun", label: "Aliyun", ok: true, speedBps: 1024 * 1024, indexMs: 20 },
+        ],
+        ranked: ["ustc", "aliyun"],
+      }),
+      readIndex: async ({ indexUrl }) => ({ indexUrl, latest: "0.8.8", versions: ["0.8.8"] }),
+      spawnInstall,
+    });
+
+    const result = await updater.installVersion("0.8.8");
+    assert.equal(result.ok, false);
+    assert.equal(spawnInstall.calls.length, 1, "the next mirror would fail on the very same wheel");
+    const install = updater.view().install;
+    assert.equal(install.phase, "failed");
+    assert.match(install.error, /Failed to build/u, "the uv reason survives into the error");
+    assert.ok(install.log.some((line) => line.includes("not mirror-specific")), "the page says why it stopped");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a fetch failure still walks on to the next mirror", async () => {
+  const home = temporaryHome();
+  try {
+    const spawnInstall = fakeSpawner(managedToolchainRoot(home), {
+      failFor: () => true,
+      outputFor: () => ["error: Failed to fetch https://ustc.example/simple/windows-mcp"],
+    });
+    const updater = createUpdater({
+      home,
+      warn: () => {},
+      resolver: () => "C:\\fake\\uv.exe",
+      pinned: "0.8.8",
+      writeBridge: () => ({ ok: true, restartRequired: true }),
+      probe: async () => ({
+        results: [
+          { id: "ustc", label: "USTC", ok: true, speedBps: 2 * 1024 * 1024, indexMs: 10 },
+          { id: "aliyun", label: "Aliyun", ok: true, speedBps: 1024 * 1024, indexMs: 20 },
+        ],
+        ranked: ["ustc", "aliyun"],
+      }),
+      readIndex: async ({ indexUrl }) => ({ indexUrl, latest: "0.8.8", versions: ["0.8.8"] }),
+      spawnInstall,
+    });
+
+    await updater.installVersion("0.8.8");
+    assert.ok(spawnInstall.calls.length > 1, "a network failure is worth the next candidate");
+    assert.ok(
+      !updater.view().install.log.some((line) => line.includes("not mirror-specific")),
+      "the walk was not cut short",
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 /* ------------------------------------------------------------------ *
  * 5. install plumbing: env, arguments, streamed log
  * ------------------------------------------------------------------ */
@@ -397,19 +475,51 @@ test("uv installs run with the mirror-safe environment and the managed tool dir"
   assert.equal(uvInstallEnvironment().UV_TOOL_DIR, undefined, "the global install keeps the default tool dir");
 });
 
-test("spawnUvInstall passes the chosen mirror and streams output", async () => {
+test("spawnUvInstall passes the chosen mirror, the interpreter cap and streams output", async () => {
   const started = spawnUvInstall({
     uv: process.execPath,
     spec: "windows-mcp@0.8.8",
     indexUrl: "https://fast.example/simple",
     toolDirectory: join(tmpdir(), "dwmc-args"),
   });
-  assert.deepEqual(started.args, ["tool", "install", "--force", "--default-index", "https://fast.example/simple", "windows-mcp@0.8.8"]);
+  assert.deepEqual(started.args, [
+    "tool",
+    "install",
+    "--force",
+    "--default-index",
+    "https://fast.example/simple",
+    "--python",
+    UV_PYTHON_REQUIREMENT,
+    "windows-mcp@0.8.8",
+  ]);
   await new Promise((resolve) => started.child.on("close", resolve));
 
   const plain = spawnUvInstall({ uv: process.execPath, spec: "windows-mcp@0.8.8" });
-  assert.deepEqual(plain.args, ["tool", "install", "--force", "windows-mcp@0.8.8"]);
+  assert.deepEqual(plain.args, ["tool", "install", "--force", "--python", UV_PYTHON_REQUIREMENT, "windows-mcp@0.8.8"]);
   await new Promise((resolve) => plain.child.on("close", resolve));
+});
+
+test("the interpreter cap keeps uv off a wheel-less system Python", () => {
+  // windows-mcp requires >=3.14; 3.15 has no PyYAML cp315 wheel yet, so uv has
+  // to stay on 3.14 and use the managed interpreter.
+  assert.equal(UV_PYTHON_REQUIREMENT, ">=3.14,<3.15");
+});
+
+test("a build failure is reported with its reason and stops the mirror walk", () => {
+  const detail = installFailureDetail([
+    "Resolved 86 packages in 12ms",
+    "error: Failed to build 'pyyaml==6.0.3'",
+    "  Caused by: Microsoft Visual C++ 14.0 is required",
+  ]);
+  assert.equal(detail.fatal, true, "no wheel for this interpreter fails on every mirror");
+  assert.match(detail.tail, /Failed to build/u);
+
+  const network = installFailureDetail(["error: Failed to fetch https://mirror.example/simple/windows-mcp"]);
+  assert.equal(network.fatal, false, "a fetch error is worth retrying on the next mirror");
+
+  const quiet = installFailureDetail([]);
+  assert.equal(quiet.fatal, false);
+  assert.equal(quiet.tail, null);
 });
 
 test("createPrepare streams the mirror and the managed tool directory", async () => {
@@ -425,7 +535,7 @@ test("createPrepare streams the mirror and the managed tool directory", async ()
   const started = prepare.start();
   assert.equal(started.started, true);
   assert.equal(started.state.phase, "running");
-  assert.equal(started.state.log[0], `$ ${process.execPath} tool install --force --default-index https://fast.example/simple windows-mcp@0.8.8  (UV_TOOL_DIR=${toolDirectory})`);
+  assert.equal(started.state.log[0], `$ ${process.execPath} tool install --force --default-index https://fast.example/simple --python ${UV_PYTHON_REQUIREMENT} windows-mcp@0.8.8  (UV_TOOL_DIR=${toolDirectory})`);
 
   const settled = await waitForPhase(() => prepare.snapshot(), "failed");
   assert.match(settled.error, /uv exited with code/u);
