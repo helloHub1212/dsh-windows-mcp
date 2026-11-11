@@ -998,6 +998,17 @@ test("the settings page saves itself and keeps only the defaults action at the e
   assert.ok(source.includes('confirm === "defaults"'), "the confirmation replaces the footer buttons instead of stacking");
 });
 
+test("a failed auto-save still says so", () => {
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  assert.equal((source.match(/settingsWriteFailed:/gu) ?? []).length, 2, "both languages carry the failure copy");
+  assert.match(source, /className: "dwmc-error" \},\s*t\.settingsWriteFailed/u, "the note is an error, not a hint");
+  assert.ok(source.includes('host.saved.phase === "error"'), "the failure state drives it");
+  assert.ok(
+    source.includes("(body.write && body.write.error) || body.error"),
+    "the bridge-write reason is not dropped by an ok:false body",
+  );
+});
+
 test("the welcome dialog is a portal modal that fires on activation", () => {
   const { exportsObject } = loadClientBundle();
   const internals = exportsObject.__internals;
