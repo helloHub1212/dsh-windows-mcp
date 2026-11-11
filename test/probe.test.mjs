@@ -70,7 +70,7 @@ test("probeDesktop settles on the timeout instead of hanging a tool call", async
     on() {},
     kill() {},
   };
-  const probe = await probeDesktop({ timeoutMs: 20, spawn: () => fakeChild });
+  const probe = await probeDesktop({ timeoutMs: 20, spawn: () => fakeChild, platform: "win32" });
   assert.match(String(probe.error), /timed out after 20 ms/u);
 });
 
@@ -94,8 +94,12 @@ test("probeDesktop resolves measurements from the child's stdout", async () => {
     },
     kill() {},
   };
-  const pending = probeDesktop({ timeoutMs: 2000, spawn: () => fakeChild });
+  const pending = probeDesktop({ timeoutMs: 2000, spawn: () => fakeChild, platform: "win32" });
   handlers["out:data"]?.('{"uia":13,"windows":14,"scale":1}');
   handlers.close?.(0);
   assert.deepEqual(await pending, { uiaWindows: 13, windowHandles: 14, displayScale: 1 });
+});
+
+test("probeDesktop refuses to measure a host that is not Windows", async () => {
+  assert.deepEqual(await probeDesktop({ platform: "linux" }), { skipped: "not a Windows host" });
 });
