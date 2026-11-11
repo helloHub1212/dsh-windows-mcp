@@ -302,9 +302,10 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   const fresh = await import(`../lib/index.js?lazy=${Date.now()}`);
 
   const routes = new Map();
-  let assemble = null;
+  let preStep = null;
   let guard = null;
   const registered = [];
+  const restricted = new Map();
   const catalog = [
     ["mcp__windows__Screenshot", { description: "Take a screenshot", parameters: { type: "object", properties: {} } }],
     ["mcp__windows__Click", { description: "Click a point", parameters: { type: "object", properties: { loc: { type: "array" } } } }],
@@ -320,10 +321,25 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
       return () => {};
     },
   };
+  // The host hands `system-prompt/assemble` only `{ sections, contexts,
+  // variables }` and merges `tools` in afterwards, so the gate has to work
+  // through the agent-scoped tools service instead.
+  const agentFor = (id) => ({
+    id,
+    ctx: {
+      get: (key) => (key === "tools" ? {
+        schemas: () => tools.schemas(),
+        restrict(filter) {
+          restricted.set(id, filter.deny ?? []);
+          return () => restricted.delete(id);
+        },
+      } : undefined),
+    },
+  });
   fresh.apply({
     logger: { warn() {} },
     on(event, listener) {
-      if (event === "system-prompt/assemble") assemble = listener;
+      if (event === "agent/pre-step") preStep = listener;
     },
     inject(services, callback) {
       if (services.includes("webServer")) {
@@ -346,23 +362,15 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), enabled);
   assert.equal(enabled.status, 200);
 
-  const alice = { id: "alice" };
-  const bob = { id: "bob" };
-  const assembly = {
-    sections: [],
-    contexts: [],
-    variables: {},
-    tools: [
-      { name: "mcp__windows__Screenshot" },
-      { name: "mcp__windows__Click" },
-      { name: "windows_desktop" },
-      { name: "bash" },
-    ],
-  };
-  const next = async () => assembly;
+  const alice = agentFor("alice");
+  const bob = agentFor("bob");
 
-  const before = await assemble(assembly, { agent: alice }, next);
-  assert.deepEqual(before.tools.map((tool) => tool.name), ["windows_desktop", "bash"], "the eighteen schemas stay out of the prompt");
+  preStep(alice);
+  assert.deepEqual(
+    restricted.get("alice"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click"],
+    "the eighteen schemas stay out of the prompt",
+  );
   assert.match(guard({ name: "mcp__windows__Click", agent: alice }) ?? "", /hidden to save context/u);
 
   const revealedAll = reveal.execute({}, { agent: alice });
@@ -370,22 +378,22 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   assert.equal(revealedAll.tools.length, 2);
   assert.match(String(revealedAll.note), /next step/u);
 
-  const after = await assemble(assembly, { agent: alice }, next);
-  assert.deepEqual(
-    after.tools.map((tool) => tool.name),
-    ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop", "bash"],
-    "the revealed capabilities join the next step",
-  );
+  preStep(alice);
+  assert.equal(restricted.has("alice"), false, "the revealed capabilities join the next step");
   assert.equal(guard({ name: "mcp__windows__Click", agent: alice }), undefined, "revealed tools dispatch again");
 
-  const bobBefore = await assemble(assembly, { agent: bob }, next);
-  assert.deepEqual(bobBefore.tools.map((tool) => tool.name), ["windows_desktop", "bash"], "another agent stays dark");
+  preStep(bob);
+  assert.deepEqual(
+    restricted.get("bob"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click"],
+    "another agent stays dark",
+  );
   assert.match(guard({ name: "mcp__windows__Click", agent: bob }) ?? "", /hidden/u);
 
   const clickOnly = reveal.execute({ query: "click" }, { agent: bob });
   assert.deepEqual(clickOnly.revealed, ["mcp__windows__Click"], "a keyword reveals only what it matches");
-  const bobAfter = await assemble(assembly, { agent: bob }, next);
-  assert.deepEqual(bobAfter.tools.map((tool) => tool.name), ["mcp__windows__Click", "windows_desktop", "bash"]);
+  preStep(bob);
+  assert.deepEqual(restricted.get("bob"), ["mcp__windows__Screenshot"], "only the unrevealed name stays hidden");
 
   const rendered = reveal.output.render({}, revealedAll);
   assert.match(rendered.map((part) => part.text).join("\n"), /Revealed 2 desktop capability/u);
@@ -405,13 +413,36 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
   const fresh = await import(`../lib/index.js?gate=${Date.now()}`);
 
   const routes = new Map();
-  let assemble = null;
+  let preStep = null;
   let guard = null;
-  const tools = { schemas: () => [["mcp__windows__Screenshot", {}], ["bash", {}]] };
+  const restricted = new Map();
+  const catalog = [
+    ["mcp__windows__Screenshot", {}],
+    ["mcp__windows__Click", {}],
+    ["windows_desktop", {}],
+    ["bash", {}],
+  ];
+  const tools = {
+    schemas: () => catalog,
+    register() { return () => {}; },
+    guard(candidate) { guard = candidate; return () => {}; },
+  };
+  const agent = {
+    id: "gate",
+    ctx: {
+      get: (key) => (key === "tools" ? {
+        schemas: () => tools.schemas(),
+        restrict(filter) {
+          restricted.set("gate", filter.deny ?? []);
+          return () => restricted.delete("gate");
+        },
+      } : undefined),
+    },
+  };
   fresh.apply({
     logger: { warn() {} },
     on(event, listener) {
-      if (event === "system-prompt/assemble") assemble = listener;
+      if (event === "agent/pre-step") preStep = listener;
     },
     inject(services, callback) {
       if (services.includes("webServer")) {
@@ -421,31 +452,21 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
         });
         return;
       }
-      callback({
-        tools: {
-          register() { return () => {}; },
-          guard(candidate) { guard = candidate; return () => {}; },
-        },
-      });
+      callback({ tools });
     },
   });
 
-  assert.equal(typeof assemble, "function", "the prompt assembly must be hooked");
+  assert.equal(typeof preStep, "function", "the agent step must be hooked, not prompt assembly");
   assert.equal(typeof guard, "function", "a dispatch guard must be installed");
-
-  const assembly = {
-    sections: [],
-    contexts: [],
-    variables: {},
-    tools: [{ name: "mcp__windows__Screenshot" }, { name: "windows_desktop" }, { name: "bash" }],
-  };
-  const next = async () => assembly;
 
   // Default OFF: the desktop is hidden and refused from the very first step,
   // including the reveal entry — turning the desktop off turns everything off.
-  const offAssembly = await assemble(assembly, {}, next);
-  assert.deepEqual(offAssembly.tools.map((tool) => tool.name), ["bash"], "desktop tools vanish from the model-facing list");
-  assert.equal(assembly.tools.length, 3, "the incoming assembly is never mutated");
+  preStep(agent);
+  assert.deepEqual(
+    restricted.get("gate"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop"],
+    "desktop tools vanish from the model-facing list",
+  );
   assert.match(guard({ name: "mcp__windows__Click" }) ?? "", /Computer Use is switched off/u);
   assert.equal(guard({ name: "bash" }), undefined, "unrelated tools keep working");
 
@@ -455,10 +476,10 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
   routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), post);
   assert.equal(post.status, 200);
 
-  const onAssembly = await assemble(assembly, {}, next);
+  preStep(agent);
   assert.deepEqual(
-    onAssembly.tools.map((tool) => tool.name),
-    ["windows_desktop", "bash"],
+    restricted.get("gate"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click"],
     "an enabled desktop offers the reveal entry instead of the whole table",
   );
   assert.match(guard({ name: "mcp__windows__Click" }) ?? "", /hidden to save context/u);
