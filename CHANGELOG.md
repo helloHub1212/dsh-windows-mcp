@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-11-11
+
+### Fixed
+
+- **Sessions start again.** Computer Use no longer takes over the host's step
+  chain, so a message gets an answer instead of failing before the first step
+  with `Cannot read properties of undefined (reading 'kind')`.
+- **The switch turns back on.** A changed decision now releases the previous
+  restriction before applying the new one, so switching Computer Use off and on
+  again — or calling the reveal tool — brings the desktop tools straight back
+  without restarting DSH.
+- **A gate failure can no longer end a turn.** Errors inside the tool gate are
+  contained; the step still runs with the model's normal tool list.
+
 ## [0.2.6] - 2026-11-11
 
 ### Fixed
