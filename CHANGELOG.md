@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-11-11
+
+### Fixed
+
+- **Desktop tools that are hidden are really gone from the request.** With
+  Computer Use off — or with lazy tools on and nothing revealed yet — the 18
+  `mcp__windows__*` schemas no longer reach the model: each agent's tool scope
+  loses them, so a closed switch saves about 4,000 tokens on every turn instead
+  of only refusing the call.
+- **A failed install now names its cause instead of blaming every mirror.**
+  When a dependency has no wheel for the chosen Python (PyYAML on Python 3.15)
+  the page shows uv's own error; the installer no longer walks all seven
+  mirrors for a failure no mirror can fix. Installs also ask uv for Python 3.14,
+  so a machine whose newest interpreter is 3.15 gets a working install instead
+  of a compiler error.
+- **The settings page saves itself, and a failed save is visible.** Changes are
+  written a moment after editing; a failed write shows the reason and "Restore
+  defaults" asks before resetting.
+- **The screenshot flash checkbox means what it says.** A ticked box now turns
+  the border on, instead of storing the opposite of what the label described.
+- **"Update available" appears only when an update is really available.** A
+  host running the global `uv tool` install no longer reports an update forever.
+- **The composer switch matches the composer's own controls** in height, type,
+  radius and hover colour, and a reloaded bundle replaces its stylesheet instead
+  of leaving new markup on old rules.
+
+### Changed
+
+- **The pill's Chinese copy was tightened.** The tooltip no longer lists a
+  capability summary that does not match the exposed tools; it says what the
+  switch does, adds "点击重试" only on failure, and keeps the safety note while
+  something is exposed. The settings header now carries GitHub, npm and the
+  version, and the separate About card and star prompt are gone.
+- **README:** `Scrape` is described as fetching a web page, and `Notification`
+  as sending a Windows toast.
+
 ## [0.2.5] - 2026-11-10
 
 ### Changed
