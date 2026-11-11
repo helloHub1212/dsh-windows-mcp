@@ -232,6 +232,7 @@ Windows-MCP 也能作为后台服务运行。上游的 `windows-mcp install` 会
 | 完全没有 `mcp__windows__*` 工具 | 跑 `windows_mcp_doctor`。全新安装时这是**预期**的：桥出厂是 disabled，要在 **设置 → 桌面控制** 里装完依赖、重启 DSH 之后才会启用。若依赖已装，看 doctor 打印的生效行里的 `disabled` / `command`，以及宿主日志里的 `mcp-client(windows)` 行。 |
 | 升级后工具消失了 | 工具名是 `mcp__<serverName>__<tool>`。改 `serverName` 会改掉全部工具名（并打破 prompt 缓存前缀）。 |
 | 截图返回的是文本 | 当前模型不接受图片输入，或你的 harness 配置里关掉了附件。上游的图片只有在准入成功时才会被投影。 |
+| `Snapshot` 显示 `No windows found` / `No elements`，`Move`/`Click`/`Type` 都报成功却没反应 | 是这个 Windows 会话的 UI Automation 失效，不是插件问题。跑 `windows_mcp_doctor`：其中 `desktop probe` 一行会实测 UI Automation 能看到的窗口数与显示缩放。这是上游 [CursorTouch/Windows-MCP#607](https://github.com/CursorTouch/Windows-MCP/issues/607)——注销并重新登录 Windows（或重启）通常能恢复，根治要等上游修复。高 DPI 下绝对坐标偏移也出自同一个上游报告。 |
 | `App` 工具报错或没反应 | 上游明确说它只在英文版 Windows 上可靠；本插件默认已排除。 |
 | DSH 启动明显变慢 | 桥不该占用启动时间：它出厂 `disabled: true`，只有安装后把 `command` 指到可执行文件才会启动。启动变慢说明**别的**行在引导期解析工具链——看 `windows_mcp_doctor` 打印的生效行。 |
 | 截图里的字看不清 | 把 `WINDOWS_MCP_SCREENSHOT_SCALE` 提到接近 `1.0`；上游截图上限是 1920×1080。 |

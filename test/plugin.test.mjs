@@ -147,7 +147,7 @@ test("default export exposes name and apply", () => {
   assert.equal(typeof plugin.apply, "function");
 });
 
-test("windows_mcp_doctor registers and produces a usable report", () => {
+test("windows_mcp_doctor registers and produces a usable report", async () => {
   const registered = [];
   apply({
     logger: { warn() {} },
@@ -167,7 +167,8 @@ test("windows_mcp_doctor registers and produces a usable report", () => {
   assert.equal(typeof definition.execute, "function");
   assert.equal(definition.parameters.additionalProperties, false);
 
-  const output = definition.execute({});
+  const output = await definition.execute({});
+  assert.match(output.report, /desktop probe\s+:/, "the report separates live UI Automation health from the file checks");
   assert.equal(typeof output.report, "string");
   assert.match(output.report, /dsh-windows-mcp \d+\.\d+\.\d+/);
   assert.match(output.report, /uvx\s+:/);
@@ -951,6 +952,14 @@ test("client bundle registers the settings page with brand links in its header",
   assert.equal(exportsObject.__internals.SETTINGS_PATH, "/dsh-windows-mcp/settings");
   assert.equal(exportsObject.__internals.REPO_URL, "https://github.com/helloHub1212/dsh-windows-mcp");
   assert.equal(exportsObject.__internals.NPM_URL, "https://www.npmjs.com/package/dsh-windows-mcp");
+  assert.equal(
+    exportsObject.__internals.UPSTREAM_UIA_ISSUE,
+    "https://github.com/CursorTouch/Windows-MCP/issues/607",
+    "the empty-UIA upstream report is a stable link, not scattered prose",
+  );
+  assert.ok(clientSource.includes("diagnosticsHint"), "the dependency card explains why tools can succeed and do nothing");
+  assert.ok(clientSource.includes("CursorTouch/Windows-MCP#607"), "the note links the upstream report");
+  assert.ok(exportsObject.__internals.CSS.includes(".dwmc-note a{"), "the note link stays readable inside settings");
   assert.ok(clientSource.includes('brandLink("GitHub", REPO_URL)'), "the repo link became a header pill");
   assert.ok(clientSource.includes('brandLink("npm", NPM_URL)'), "the package link sits beside it");
   assert.ok(!clientSource.includes("starHint"), "the star nag is gone with the about card");

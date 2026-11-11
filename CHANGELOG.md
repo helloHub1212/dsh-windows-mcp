@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-11-11
+
+### Fixed
+
+- **A dead UI Automation tree is diagnosed instead of guessed at.**
+  `windows_mcp_doctor` now measures the live desktop: how many top-level windows
+  UI Automation can enumerate, how many window handles exist, and the display
+  scale. When UI Automation sees a single window while more exist — Snapshot
+  prints "No windows found", and Move/Click/Type report success without doing
+  anything — the report names upstream CursorTouch/Windows-MCP#607 and states
+  that the installation is fine. On high-DPI displays it also explains why
+  absolute coordinates drift. The probe is read-only and bounded, and prints
+  "not measured" when PowerShell is unavailable.
+
+### Changed
+
+- Settings → Desktop and both READMEs point at the same upstream report when a
+  screenshot works but the desktop tools do nothing.
+
 ## [0.2.7] - 2026-11-11
 
 ### Fixed
