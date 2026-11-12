@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-11-12
+
+### Fixed
+
+- **Installing without uv no longer looks like nothing happened.** When uv is
+  missing, the Dependency card now says so, shows the command that installs it,
+  and links to the instructions. Pressing "Download and install" reports the
+  refusal together with the host's own reason instead of leaving the page on
+  idle with no loading, no log and no error.
+
+### Changed
+
+- A refused install request answers with its reason, and the refusal is part of
+  the install state — every view of the page sees it, not only the one that
+  clicked.
+
 ## [0.2.8] - 2026-11-11
 
 ### Fixed

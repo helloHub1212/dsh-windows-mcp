@@ -427,6 +427,34 @@ test("an install stops the mirror walk when the failure is not mirror-specific",
   }
 });
 
+test("a missing uv is reported instead of leaving the page on idle", async () => {
+  const home = temporaryHome();
+  try {
+    const spawnInstall = fakeSpawner(managedToolchainRoot(home));
+    const updater = createUpdater({
+      home,
+      warn: () => {},
+      resolver: () => null,
+      pinned: "0.8.8",
+      writeBridge: () => ({ ok: true, restartRequired: true }),
+      probe: async () => ({ results: [], ranked: [] }),
+      readIndex: async ({ indexUrl }) => ({ indexUrl, latest: "0.8.8", versions: ["0.8.8"] }),
+      spawnInstall,
+    });
+
+    const result = await updater.installVersion("0.8.8");
+    assert.equal(result.ok, false);
+    const install = updater.view().install;
+    assert.equal(install.phase, "failed", "the page must see a failure, not idle");
+    assert.equal(install.version, "0.8.8");
+    assert.match(install.error, /uv/u, "the error names the missing tool");
+    assert.match(install.error, /docs\.astral\.sh\/uv/u, "and links to the install instructions");
+    assert.equal(spawnInstall.calls.length, 0, "nothing is spawned without uv");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("a fetch failure still walks on to the next mirror", async () => {
   const home = temporaryHome();
   try {

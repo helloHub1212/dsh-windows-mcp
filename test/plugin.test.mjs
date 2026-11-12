@@ -879,6 +879,20 @@ test("the pill stays English without a locale service and follows the browser ot
   assert.equal(mountPill(other.exportsObject).pill.props["aria-label"], "Computer Use", "only Chinese is translated");
 });
 
+test("the page explains a missing uv and surfaces a refused install", () => {
+  const { exportsObject } = loadClientBundle();
+  const internals = exportsObject.__internals;
+  assert.match(internals.UV_INSTALL_URL, /docs\.astral\.sh\/uv/u);
+  assert.match(internals.UV_INSTALL_COMMAND, /astral\.sh\/uv\/install\.ps1/u);
+  assert.match(internals.copy().uvHint, /uv/u);
+  assert.match(clientSource, /dependency\.uv === null/u, "the hint is tied to the dependency state");
+  assert.match(clientSource, /t\.uvHint/u);
+  assert.match(clientSource, /UV_INSTALL_COMMAND/u);
+  assert.match(clientSource, /function reasonOf/u, "a refused request keeps the host's reason");
+  assert.match(clientSource, /body\.reason/u);
+  assert.match(internals.CSS, /\.dwmc-note a\{/u);
+});
+
 test("the plugin card points at the settings page instead of duplicating the installer", () => {
   const { exportsObject } = loadClientBundle();
   const registrations = [];
