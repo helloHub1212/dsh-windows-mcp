@@ -236,6 +236,9 @@ Windows-MCP 也能作为后台服务运行。上游的 `windows-mcp install` 会
 | `App` 工具报错或没反应 | 上游明确说它只在英文版 Windows 上可靠；本插件默认已排除。 |
 | DSH 启动明显变慢 | 桥不该占用启动时间：它出厂 `disabled: true`，只有安装后把 `command` 指到可执行文件才会启动。启动变慢说明**别的**行在引导期解析工具链——看 `windows_mcp_doctor` 打印的生效行。 |
 | 截图里的字看不清 | 把 `WINDOWS_MCP_SCREENSHOT_SCALE` 提到接近 `1.0`；上游截图上限是 1920×1080。 |
+| 点击位置偏了，或截图比屏幕小 | 截图被缩小了。出现缩放时 `Screenshot` 会打印 `Screenshot Coordinate Scale`：把图像像素坐标乘以这个系数再交给 `Click` / `Move` / `Scroll`；也可以把 `WINDOWS_MCP_SCREENSHOT_SCALE` 设为 `1.0`（慢一些，但像素与屏幕一致）。上游的 `Click` 没有落点预演，也没有窗口/区域约束。 |
+| 自己在动鼠标键盘时所有工具都报 `USER_CONTROL` | 上游把最近 10 秒内的物理输入视为你收回了控制权，会拒绝**全部**工具，包括 `Screenshot` / `Snapshot`，直到 `wait_seconds` 归零。把手离开鼠标键盘约十秒即可。 |
+| 重装报 `uv exited with code 2`，之后 DSH 起不来 | 桥正从要重装的那个版本运行。Windows 锁定运行中的 `windows-mcp.exe`，就地重装会删掉环境的一部分又无法完成。安装器现在会在启动 uv 之前拒绝，并点名占用的进程；请切到另一个已安装版本（或禁用桥）、重启 DSH 后再装。目录被占用属于本机问题，不会再被报成镜像失败。 |
 
 ## 安全
 

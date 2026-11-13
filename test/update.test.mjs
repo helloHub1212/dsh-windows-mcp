@@ -455,6 +455,78 @@ test("a missing uv is reported instead of leaving the page on idle", async () =>
   }
 });
 
+test("a locked tool directory is reported as local, not as a mirror failure", () => {
+  const detail = installFailureDetail([
+    "failed: PyPI: uv exited with code 2",
+    "failed to remove directory `C:\\Users\\me\\.dsh\\dsh-windows-mcp\\toolchain\\0.8.8\\windows-mcp\\Scripts`: 拒绝访问。 (os error 5)",
+  ]);
+  assert.equal(detail.fatal, true, "every mirror deletes the same locked directory");
+  assert.match(detail.tail, /failed to remove directory/u);
+});
+
+test("an in-place reinstall is refused while the bridge runs from that version", async () => {
+  const home = temporaryHome();
+  try {
+    const spawnInstall = fakeSpawner(managedToolchainRoot(home));
+    const toolRoot = versionToolRoot(managedToolchainRoot(home), "0.8.8");
+    const scans = [];
+    const updater = createUpdater({
+      home,
+      warn: () => {},
+      resolver: () => "C:\\fake\\uv.exe",
+      pinned: "0.8.8",
+      writeBridge: () => ({ ok: true, restartRequired: true }),
+      probe: async () => ({ results: [], ranked: [] }),
+      readIndex: async ({ indexUrl }) => ({ indexUrl, latest: "0.8.8", versions: ["0.8.8"] }),
+      spawnInstall,
+      listProcesses: async () => {
+        scans.push(true);
+        return [
+          { pid: 4242, path: join(toolRoot, "windows-mcp", "Scripts", "windows-mcp.exe") },
+          { pid: 99, path: "C:\\Windows\\explorer.exe" },
+        ];
+      },
+    });
+
+    const result = await updater.installVersion("0.8.8");
+    assert.equal(result.ok, false);
+    assert.equal(scans.length, 1);
+    const install = updater.view().install;
+    assert.equal(install.phase, "failed", "the page must see a failure, not idle");
+    assert.match(install.error, /Windows-MCP is running from/u);
+    assert.match(install.error, /PID 4242/u);
+    assert.match(install.error, /restart DSH/u);
+    assert.equal(install.mirror, null, "no mirror is blamed for a local lock");
+    assert.equal(spawnInstall.calls.length, 0, "uv must not touch a live environment");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a process outside the target tool root does not block an install", async () => {
+  const home = temporaryHome();
+  try {
+    const spawnInstall = fakeSpawner(managedToolchainRoot(home));
+    const updater = createUpdater({
+      home,
+      warn: () => {},
+      resolver: () => "C:\\fake\\uv.exe",
+      pinned: "0.8.8",
+      writeBridge: () => ({ ok: true, restartRequired: true }),
+      probe: async () => ({ results: [], ranked: [] }),
+      readIndex: async ({ indexUrl }) => ({ indexUrl, latest: "0.8.8", versions: ["0.8.8"] }),
+      spawnInstall,
+      listProcesses: async () => [{ pid: 99, path: "C:\\Windows\\explorer.exe" }],
+    });
+
+    const result = await updater.installVersion("0.8.8");
+    assert.equal(result.ok, true);
+    assert.equal(spawnInstall.calls.length, 1);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("a fetch failure still walks on to the next mirror", async () => {
   const home = temporaryHome();
   try {

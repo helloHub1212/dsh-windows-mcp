@@ -267,6 +267,9 @@ or an explicit `--allow-insecure-remote`.
 | `App` tool fails or returns nothing | Upstream documents it as reliable on English Windows installs only; it is excluded by default. |
 | DSH takes noticeably longer to boot | The bridge should not cost boot time: it ships `disabled: true` and only starts once an install has pointed it at an executable. A slow boot means some *other* row is resolving a toolchain at boot — check the effective row printed by `windows_mcp_doctor`. |
 | Screenshot text is unreadable | Raise `WINDOWS_MCP_SCREENSHOT_SCALE` toward `1.0`; upstream caps captures at 1920×1080. |
+| Click lands in the wrong place, or the screenshot is smaller than the screen | The capture is downscaled. `Screenshot` prints `Screenshot Coordinate Scale` when that happens: multiply every image pixel by that factor before passing it to `Click` / `Move` / `Scroll`, or set `WINDOWS_MCP_SCREENSHOT_SCALE` to `1.0` (slower, same pixels as the screen). Upstream offers no dry-run or window constraint for `Click`. |
+| Every tool is rejected with `USER_CONTROL` while you use the mouse | Upstream treats any physical input in the last 10 seconds as you taking control back and refuses *all* tools, including `Screenshot` / `Snapshot`, until `wait_seconds` runs out. Keep hands off the mouse and keyboard for about ten seconds. |
+| Reinstall fails with `uv exited with code 2` and DSH no longer starts | The bridge was running from the version being reinstalled. Windows locks the running `windows-mcp.exe`, so an in-place reinstall deletes part of the environment and cannot finish. The installer now refuses before uv starts and names the process; switch to another installed version (or disable the bridge), restart DSH, then install. A lock is a local problem and is no longer reported as a mirror failure. |
 
 ## Security
 

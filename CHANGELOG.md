@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-11-13
+
+### Fixed
+
+- **Reinstalling the version the bridge is running no longer breaks it.**
+  Windows locks the running `windows-mcp.exe`, so an in-place reinstall deleted
+  part of the environment and then failed, leaving an install that could not
+  start. The installer now detects that the target version is in use, refuses
+  before uv starts, and names the directory and process; switching to another
+  installed version (or disabling the bridge), restarting DSH, then installing
+  works as expected. The refusal is shown on the Dependency card like any other
+  install failure.
+- **A locked directory is not blamed on the mirror.** When uv cannot remove a
+  directory because a file is in use, the reasons that are identical on every
+  mirror now stop the mirror walk instead of trying all seven and reporting
+  "mirror failed".
+
+### Changed
+
+- Docs: Screenshot downscaling and `USER_CONTROL` refusals are explained in the
+  troubleshooting tables (Chinese and English).
+
 ## [0.2.9] - 2026-11-12
 
 ### Fixed
