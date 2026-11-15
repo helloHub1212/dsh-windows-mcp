@@ -256,6 +256,22 @@ test("the host registers the Computer Use state route and answers GET", async ()
   route.handler(fakeRequest("POST", '{"enabled":"yes","sessionId":"session-1"}'), bad);
   assert.equal(bad.status, 400);
 
+  // Every half-formed write is refused rather than applied to the wrong session.
+  for (const body of ['{"sessionId":"session-1"}', '{"enabled":true}', '{"enabled":true,"sessionId":""}', '{"enabled":true,"sessionId":7}']) {
+    const refusedBody = fakeResponse();
+    route.handler(fakeRequest("POST", body), refusedBody);
+    assert.equal(refusedBody.status, 400, `${body} must be refused`);
+    assert.match(JSON.parse(refusedBody.body).error, /sessionId/u);
+  }
+
+  // A session id is opaque, but a page cannot use it to grow the map without
+  // bound: what is stored is the first 128 characters, exactly like the read.
+  const longId = "x".repeat(200);
+  const longWrite = fakeResponse();
+  route.handler(fakeRequest("POST", JSON.stringify({ enabled: true, sessionId: longId })), longWrite);
+  assert.equal(longWrite.status, 200);
+  assert.equal(JSON.parse(longWrite.body).sessionId.length, 128);
+
   const wrongMethod = fakeResponse();
   route.handler({ method: "DELETE" }, wrongMethod);
   assert.equal(wrongMethod.status, 405);
@@ -629,8 +645,15 @@ async function sessionHarness(tag, options = {}) {
     return JSON.parse(response.body);
   };
   const created = (agent) => events.get("agent/created")({ agent, source: "user" });
+  /** Write one `plugin` settings object the way the Settings page does. */
+  const saveSettings = (plugin) => {
+    const response = fakeResponse();
+    routes.get("/dsh-windows-mcp/settings").handler(fakeRequest("POST", JSON.stringify({ settings: { plugin } })), response);
+    assert.equal(response.status, 200, response.body);
+    return JSON.parse(response.body);
+  };
 
-  return { home, fresh, routes, events, restricted, tools, agentFor, read, write, created, state };
+  return { home, fresh, routes, events, restricted, tools, agentFor, read, write, created, saveSettings, state };
 }
 
 test("the Computer Use switch belongs to one conversation, not to the host", async () => {
@@ -680,6 +703,55 @@ test("the Computer Use switch belongs to one conversation, not to the host", asy
     [...restricted.get("bob")].sort(),
     ["mcp__windows__Click", "mcp__windows__Screenshot"],
     "the session that still holds the grant keeps its tools",
+  );
+});
+
+test("a session that never decided follows the settings default, and the pill still overrides it", async () => {
+  // The Settings page owns the *fallback* a conversation starts with; the pill
+  // owns the conversation itself. Keeping the two apart is what lets someone opt
+  // into "desktop by default" without turning the composer switch back into a
+  // host-wide lever.
+  const harness = await sessionHarness("default-grant");
+  const { read, write, created, restricted, saveSettings, state } = harness;
+
+  assert.equal(read("fresh").enabled, false, "the default ships off: a new install grants nothing");
+
+  // Settings → Desktop → Tool exposure → grant new sessions by default.
+  saveSettings({ defaultGrant: true });
+  assert.equal(read("fresh").enabled, true, "an undecided conversation follows the default");
+  assert.equal(read("fresh").desktopTools.revealTool, "windows_desktop", "the reveal entry comes with it");
+
+  const undecided = harness.agentFor("undecided");
+  const decided = harness.agentFor("decided");
+  write("decided", false);
+  created(undecided);
+  created(decided);
+  assert.deepEqual(
+    restricted.get("undecided"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click"],
+    "the default grant reaches the tool list of a session that never touched the pill",
+  );
+  assert.deepEqual(
+    restricted.get("decided"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop"],
+    "an explicit decision outranks the default",
+  );
+  assert.match(state.guard({ name: "mcp__windows__Click", agent: decided }) ?? "", /switched off for this session/u);
+
+  // Flipping the default back must move only the sessions that never decided.
+  write("decided", true);
+  saveSettings({ defaultGrant: false });
+  assert.equal(read("undecided").enabled, false, "undecided conversations follow the default back down");
+  assert.equal(read("decided").enabled, true, "a session that decided for itself keeps its grant");
+  assert.deepEqual(
+    [...restricted.get("undecided")].sort(),
+    ["mcp__windows__Click", "mcp__windows__Screenshot", "windows_desktop"],
+    "the setting change is applied to live agents without waiting for a step",
+  );
+  assert.deepEqual(
+    [...restricted.get("decided")].sort(),
+    ["mcp__windows__Click", "mcp__windows__Screenshot"],
+    "the session with its own grant is untouched by that change",
   );
 });
 
@@ -1275,6 +1347,26 @@ test("the settings draft keeps the lazy tools switch", () => {
 
   const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
   assert.ok(source.includes("checked: draft.plugin.lazyTools !== false"), "the checkbox reads the drafted switch");
+});
+
+test("the settings page carries the default grant for new sessions", () => {
+  const { exportsObject } = loadClientBundle();
+  const clone = exportsObject.__internals.cloneSettings;
+
+  assert.equal(clone({}).plugin.defaultGrant, false, "an untouched draft grants nothing");
+  assert.equal(clone({ plugin: { defaultGrant: true } }).plugin.defaultGrant, true, "an opt-in survives the copy");
+  assert.equal(clone({ plugin: { defaultGrant: "yes" } }).plugin.defaultGrant, false, "a non-boolean reads as the safe default");
+  assert.equal(clone({ plugin: { defaultGrant: false } }).plugin.defaultGrant, false);
+
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  assert.ok(
+    source.includes('checked: draft.plugin.defaultGrant === true'),
+    "the row is a checkbox bound to the drafted value, not to a rendered snapshot",
+  );
+  assert.ok(
+    source.includes('update("plugin", "defaultGrant", event.target.checked)'),
+    "ticking it writes the setting the host reads as the fallback",
+  );
 });
 
 test("ticking a settings checkbox always means the feature is on", () => {

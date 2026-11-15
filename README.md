@@ -41,7 +41,7 @@ With the plugin installed and Windows-MCP reachable, these tools appear in the t
 
 Plus one tool of its own, `windows_mcp_doctor`, which explains what is wrong when the `mcp__windows__*` tools are missing.
 
-The composer also gains a **Computer Use** pill, next to the permission control: it shows how many desktop tools are actually registered, and the switch belongs to **the session it is drawn in** — granting it in one chat never hands the desktop to another, and revoking it in one never blinds a second chat that is mid-task. Nothing is persisted: a new session, another window or a restart starts blind. It starts **off** — a fresh install never hands the agent your desktop until you switch the pill on yourself.
+The composer also gains a **Computer Use** pill, next to the permission control: it shows how many desktop tools are actually registered, and the switch belongs to **the session it is drawn in** — granting it in one chat never hands the desktop to another, and revoking it in one never blinds a second chat that is mid-task. Nothing is persisted: a new session, another window or a restart starts blind (to make new sessions start granted, tick **Grant new sessions by default** under Settings → Desktop → Tool exposure; the pill still overrides it per conversation). It starts **off** — a fresh install never hands the agent your desktop until you switch the pill on yourself.
 
 Switching it off is a hard switch, not a hint. The bridge keeps running, but in that session every `mcp__windows__*` tool leaves the tool list the model sees from the next step on, and a call that still names one is refused at dispatch — live, with no restart. The scope is that session and the subagents it spawns: a subagent inherits its parent's grant, while a forked chat starts blind. Switch it back on and they return immediately; `windows_mcp_doctor` reports the switch for **the current session**.
 
@@ -131,7 +131,7 @@ Everything above, plus a few knobs that do not belong on a plugin card, lives in
 - **Dependency** — install, reinstall, update, roll back, and a **Point the bridge at it** action, with the live installer log and the patched row's target. The plugin's own page only carries a pointer to this card.
 - **Bridge** — `toolCallTimeoutMs`, the screenshot scale, the capture backend, upstream's flash overlay, and the three tools the bridge may exclude (`App`, `PowerShell`, `FileSystem`). These are written into the bridge row of your profile's `cordis.patch.yml` (timestamped backup first), so **they apply after DSH restarts**; the page states which row is in effect.
 - **Updates** — whether the plugin checks for a newer Windows-MCP on boot, and the mirror policy: `auto` keeps the measured ranking, an explicit mirror pins it, and the official index always stays as the last resort.
-- **Tool exposure** — **Lazy tools** (on by default): the model sees a single `windows_desktop` entry instead of eighteen schemas, calls it, and from the next step the desktop tools it revealed are in the tool table. Turn it off to send every schema on every step.
+- **Tool exposure** — **Grant new sessions by default** (off by default): when checked, a conversation that has not touched the pill yet — new sessions and their subagents included — starts with the desktop granted, and the pill still overrides it per session; unchecked, a grant covers only the session it was switched on in. **Lazy tools** (on by default): the model sees a single `windows_desktop` entry instead of eighteen schemas, calls it, and from the next step the desktop tools it revealed are in the tool table. Turn it off to send every schema on every step.
 - **About** — the plugin version, the repository link, and a **Star** button that opens the project on GitHub in a new tab.
 
 Saving is atomic (`$DSH_HOME/dsh-windows-mcp.settings.json`). A value out of range is clamped to its default and reported instead of being written silently, and a change that leaves the bridge row untouched does not rewrite the patch layer at all. **Revert** restores the defaults in the form.
@@ -301,15 +301,17 @@ What the design does and does not do:
   mounts no `connection` service (headless hosts, Electron `file://`) cannot be
   authenticated; `/state` then reports `"gate": {"cookie": "unobservable"}`. In
   that case do not expose the web server on a non-loopback `--host`.
-- **Grants never reach the disk.** The Computer Use switch lives in the host's
-  memory, keyed by session, and clears on restart: no file records that a
-  conversation was granted, so there is no "write a file, arrive pre-authorized"
-  path either (the old `dsh-windows-mcp.state.json` is no longer read). What is
-  left on disk is the machine-written patch block and
+- **Grants never reach the disk — the default does.** The Computer Use switch
+  lives in the host's memory, keyed by session, and clears on restart: no file
+  records that a conversation was granted, so there is no "write a file, arrive
+  pre-authorized" path either (the old `dsh-windows-mcp.state.json` is no longer
+  read). What is left on disk is the machine-written patch block and
   `dsh-windows-mcp.settings.json`; an agent that can write those can still change
-  how the plugin *boots* — the cookie gate closes the HTTP path, not filesystem
-  trust. If that matters to you, run the desktop on an account the agent cannot
-  write to, or do not grant shell access and desktop control to the same model.
+  how the plugin *boots* — flipping `defaultGrant` on there hands the desktop to
+  every conversation that never touched the pill. The cookie gate closes the HTTP
+  path, not filesystem trust. If that matters to you, run the desktop on an
+  account the agent cannot write to, or do not grant shell access and desktop
+  control to the same model.
 
 ## How it works
 
