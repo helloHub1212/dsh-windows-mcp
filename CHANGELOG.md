@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-11-15
+
+### Changed
+
+- **The Computer Use switch belongs to one conversation.** Turning it on in one
+  chat no longer hands the desktop to every other session and its subagents, and
+  turning it off in one no longer hides a second chat’s tools while a task is
+  running. A subagent inherits its parent conversation’s grant; a forked or
+  resumed conversation starts from the default. The grant lives in the host’s
+  memory and clears on restart — no file on disk can pre-authorize a session,
+  and the old `dsh-windows-mcp.state.json` is no longer read, so upgrading starts
+  every session off until it is switched on again.
+- **New setting: Grant new sessions by default** (Settings → Desktop → Tool
+  exposure, off). A conversation that has never touched the pill starts with the
+  desktop granted; the pill still overrides it for that session in either
+  direction. Changing the default applies to running sessions immediately.
+- The state route now states its scope: a read answers `enabled: null` when no
+  session is named, and a write without a session id is refused instead of
+  silently moving every window.
+
+### Fixed
+
+- A desktop tool call that names no session is refused rather than inheriting
+  another conversation’s grant.
+
 ## [0.2.10] - 2026-11-13
 
 ### Fixed
