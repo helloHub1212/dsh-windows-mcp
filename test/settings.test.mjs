@@ -69,7 +69,7 @@ test("settings normalisation clamps values and names what it replaced", () => {
       screenshotBackend: "dxcam",
       disableFlash: "no",
     },
-    plugin: { autoCheckUpdates: "yes", preferredMirror: "ustc", lazyTools: "yes" },
+    plugin: { autoCheckUpdates: "yes", preferredMirror: "ustc", lazyTools: "yes", defaultGrant: "yes" },
   });
 
   assert.equal(settings.bridge.toolCallTimeoutMs, DEFAULT_SETTINGS.bridge.toolCallTimeoutMs);
@@ -80,13 +80,20 @@ test("settings normalisation clamps values and names what it replaced", () => {
   assert.equal(settings.plugin.autoCheckUpdates, true);
   assert.equal(settings.plugin.preferredMirror, "ustc");
   assert.equal(settings.plugin.lazyTools, true, "a non-boolean lazyTools falls back to the token-saving default");
+  assert.equal(settings.plugin.defaultGrant, false, "a non-boolean defaultGrant falls back to granting nothing");
 
-  for (const field of ["bridge.toolCallTimeoutMs", "bridge.excludeTools", "bridge.disableFlash", "plugin.autoCheckUpdates", "plugin.lazyTools"]) {
+  for (const field of ["bridge.toolCallTimeoutMs", "bridge.excludeTools", "bridge.disableFlash", "plugin.autoCheckUpdates", "plugin.lazyTools", "plugin.defaultGrant"]) {
     assert.ok(problems.includes(field), `${field} is reported as replaced`);
   }
 
   assert.equal(defaultSettings().plugin.lazyTools, true, "lazy tools ship on");
   assert.equal(normalizeSettings({ plugin: { lazyTools: false } }).settings.plugin.lazyTools, false, "turning it off is honoured");
+  assert.equal(defaultSettings().plugin.defaultGrant, false, "new sessions ship blind");
+  assert.equal(
+    normalizeSettings({ plugin: { defaultGrant: true } }).settings.plugin.defaultGrant,
+    true,
+    "opting into a default grant is honoured, and survives a round-trip",
+  );
 });
 
 test("settings round-trip through the host file, and corruption falls back", () => {
@@ -102,6 +109,13 @@ test("settings round-trip through the host file, and corruption falls back", () 
   assert.equal(back.plugin.preferredMirror, "nju");
   assert.equal(back.plugin.autoCheckUpdates, false);
   assert.equal(back.bridge.toolCallTimeoutMs, DEFAULT_SETTINGS.bridge.toolCallTimeoutMs);
+
+  // The default-grant flag is the one plugin setting a security decision hangs
+  // on, so it has to survive the write/read pair exactly.
+  writeSettings({ plugin: { defaultGrant: true } }, home);
+  assert.equal(readSettings(home).plugin.defaultGrant, true);
+  writeSettings({ plugin: { defaultGrant: false } }, home);
+  assert.equal(readSettings(home).plugin.defaultGrant, false);
 
   writeFileSync(settingsPath(home), "{ not json", "utf8");
   assert.deepEqual(readSettings(home), defaultSettings(), "a corrupt file never throws");
