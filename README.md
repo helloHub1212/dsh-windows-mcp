@@ -41,9 +41,9 @@ With the plugin installed and Windows-MCP reachable, these tools appear in the t
 
 Plus one tool of its own, `windows_mcp_doctor`, which explains what is wrong when the `mcp__windows__*` tools are missing.
 
-The composer also gains a **Computer Use** pill, next to the permission control: it shows how many desktop tools are actually registered and remembers your choice across restarts (state file: `~/.dsh/dsh-windows-mcp.state.json`). It starts **off** — a fresh install never hands the agent your desktop until you switch the pill on yourself.
+The composer also gains a **Computer Use** pill, next to the permission control: it shows how many desktop tools are actually registered, and the switch belongs to **the session it is drawn in** — granting it in one chat never hands the desktop to another, and revoking it in one never blinds a second chat that is mid-task. Nothing is persisted: a new session, another window or a restart starts blind. It starts **off** — a fresh install never hands the agent your desktop until you switch the pill on yourself.
 
-Switching it off is a hard switch, not a hint. The bridge keeps running, but from the next step on every `mcp__windows__*` tool is filtered out of the tool list the model sees, and a call that still names one is refused at dispatch — in every session and subagent, live, with no restart. Switch it back on and they return immediately; `windows_mcp_doctor` always reports which way it is set.
+Switching it off is a hard switch, not a hint. The bridge keeps running, but in that session every `mcp__windows__*` tool leaves the tool list the model sees from the next step on, and a call that still names one is refused at dispatch — live, with no restart. The scope is that session and the subagents it spawns: a subagent inherits its parent's grant, while a forked chat starts blind. Switch it back on and they return immediately; `windows_mcp_doctor` reports the switch for **the current session**.
 
 > **Verified:** Windows 11 + DSH Desktop 0.2.0-rc.2 — the bridged server advertises
 > **18 tools** (the 21 upstream tools minus the three excluded here) and is ready
@@ -301,13 +301,15 @@ What the design does and does not do:
   mounts no `connection` service (headless hosts, Electron `file://`) cannot be
   authenticated; `/state` then reports `"gate": {"cookie": "unobservable"}`. In
   that case do not expose the web server on a non-loopback `--host`.
-- **Files are still files.** The Computer Use flag in
-  `$DSH_HOME/dsh-windows-mcp.state.json` and the machine-written patch block are
-  ordinary files owned by the same user. An agent that can write them can still
-  change the plugin's behaviour across a restart — the cookie gate closes the
-  HTTP path, not filesystem trust. If that matters to you, run the desktop on a
-  account the agent cannot write to, or do not grant shell access and desktop
-  control to the same model.
+- **Grants never reach the disk.** The Computer Use switch lives in the host's
+  memory, keyed by session, and clears on restart: no file records that a
+  conversation was granted, so there is no "write a file, arrive pre-authorized"
+  path either (the old `dsh-windows-mcp.state.json` is no longer read). What is
+  left on disk is the machine-written patch block and
+  `dsh-windows-mcp.settings.json`; an agent that can write those can still change
+  how the plugin *boots* — the cookie gate closes the HTTP path, not filesystem
+  trust. If that matters to you, run the desktop on an account the agent cannot
+  write to, or do not grant shell access and desktop control to the same model.
 
 ## How it works
 

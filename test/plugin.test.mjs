@@ -214,11 +214,15 @@ test("the host registers the Computer Use state route and answers GET", async ()
   assert.ok(routes.has("/dsh-windows-mcp/prepare/cancel"));
   assert.ok(routes.has("/dsh-windows-mcp/bridge"));
 
+  // A read that names no session is the Settings page, which is not a
+  // conversation: there is no host-wide switch left to report.
   const get = fakeResponse();
   route.handler({ method: "GET" }, get);
   assert.equal(get.status, 200);
   const body = JSON.parse(get.body);
-  assert.equal(body.enabled, false, "default is off: desktop control is opt-in");
+  assert.equal(body.enabled, null, "no session named, no grant to report");
+  assert.equal(body.scope, "session");
+  assert.equal(body.sessionId, null);
   assert.equal(body.bridged, 2, "counts only the bridged tools");
   assert.equal(body.serverName, "windows");
   assert.equal(typeof body.dependency, "object", "the page reads dependency status from the same route");
@@ -226,14 +230,30 @@ test("the host registers the Computer Use state route and answers GET", async ()
   assert.equal(body.prepare.phase, "idle", "nothing is installing yet");
   assert.equal(body.update.versions.updateAvailable, false, "no managed slot must not mean an update is waiting");
 
+  // A write has to name the session it speaks for: a host-wide write is exactly
+  // the behaviour this route no longer offers.
+  const anonymous = fakeResponse();
+  route.handler(fakeRequest("POST", '{"enabled":true}'), anonymous);
+  assert.equal(anonymous.status, 400);
+  assert.match(JSON.parse(anonymous.body).error, /sessionId/u);
+
   const post = fakeResponse();
-  route.handler(fakeRequest("POST", '{"enabled":true}'), post);
+  route.handler(fakeRequest("POST", '{"enabled":true,"sessionId":"session-1"}'), post);
   assert.equal(post.status, 200);
   assert.equal(JSON.parse(post.body).enabled, true);
-  assert.ok(existsSync(join(home, "dsh-windows-mcp.state.json")), "the switch is persisted");
+  assert.equal(JSON.parse(post.body).sessionId, "session-1");
+  assert.ok(
+    !existsSync(join(home, "dsh-windows-mcp.state.json")),
+    "a grant is never written to disk: a file a model can write is not a place to keep it",
+  );
+
+  const readBack = fakeResponse();
+  route.handler({ method: "GET", url: "/dsh-windows-mcp/state?sessionId=session-1" }, readBack);
+  assert.equal(JSON.parse(readBack.body).enabled, true, "the session's own grant is what the pill reads");
+  assert.equal(JSON.parse(readBack.body).desktopTools.revealTool, "windows_desktop");
 
   const bad = fakeResponse();
-  route.handler(fakeRequest("POST", '{"enabled":"yes"}'), bad);
+  route.handler(fakeRequest("POST", '{"enabled":"yes","sessionId":"session-1"}'), bad);
   assert.equal(bad.status, 400);
 
   const wrongMethod = fakeResponse();
@@ -287,11 +307,13 @@ test("a mutation without the GUI session cookie is refused", async () => {
   assert.equal(read.status, 200, "reads stay open so the page can render before any decision");
 
   const refused = fakeResponse();
-  route.handler(fakeRequest("POST", '{"enabled":true}'), refused);
+  route.handler(fakeRequest("POST", '{"enabled":true,"sessionId":"session-1"}'), refused);
   assert.equal(refused.status, 401, "no cookie, no switch");
   const refusal = JSON.parse(refused.body);
   assert.match(refusal.error, /DSH window/u);
-  assert.ok(!existsSync(join(home, "dsh-windows-mcp.state.json")), "a refused write persists nothing");
+  const afterRefusal = fakeResponse();
+  route.handler({ method: "GET", url: "/dsh-windows-mcp/state?sessionId=session-1" }, afterRefusal);
+  assert.equal(JSON.parse(afterRefusal.body).enabled, false, "a refused write grants nothing");
 
   const settingsRefused = fakeResponse();
   routes.get("/dsh-windows-mcp/settings").handler(fakeRequest("POST", '{"settings":{}}'), settingsRefused);
@@ -301,7 +323,7 @@ test("a mutation without the GUI session cookie is refused", async () => {
   routes.clear();
   fresh.apply(makeCtx(true));
   const accepted = fakeResponse();
-  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), accepted);
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true,"sessionId":"session-1"}'), accepted);
   assert.equal(accepted.status, 200);
   assert.equal(JSON.parse(accepted.body).enabled, true);
 });
@@ -370,9 +392,14 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   assert.equal(typeof reveal.execute, "function");
   assert.equal(typeof reveal.output.render, "function", "the reveal result is rendered for the transcript");
 
-  const enabled = fakeResponse();
-  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), enabled);
-  assert.equal(enabled.status, 200);
+  // The grant is per session, so this scenario grants the two conversations it
+  // is about — the reveal state, not the switch, is what differs between them.
+  for (const sessionId of ["alice", "bob"]) {
+    const enabled = fakeResponse();
+    routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", JSON.stringify({ enabled: true, sessionId })), enabled);
+    assert.equal(enabled.status, 200);
+    assert.equal(JSON.parse(enabled.body).enabled, true);
+  }
 
   const preStep = events.get("agent/pre-step");
   const created = events.get("agent/created");
@@ -427,7 +454,7 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   assert.match(rendered.map((part) => part.text).join("\n"), /Revealed 2 desktop capability/u);
 
   const disabled = fakeResponse();
-  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":false}'), disabled);
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":false,"sessionId":"alice"}'), disabled);
   assert.equal(disabled.status, 200);
   assert.deepEqual(
     [...restricted.get("alice")].sort(),
@@ -437,6 +464,11 @@ test("lazy tools reveal the desktop capabilities only on demand", async () => {
   const refused = reveal.execute({}, { agent: alice });
   assert.deepEqual(refused.revealed, []);
   assert.match(String(refused.note), /switched off/u);
+  assert.deepEqual(
+    [...restricted.get("bob")].sort(),
+    ["mcp__windows__Screenshot", "mcp__windows__Scroll"],
+    "the other session keeps the grant it was given, unaffected by this revocation",
+  );
 });
 
 
@@ -501,13 +533,18 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
     ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop"],
     "desktop tools vanish from the model-facing list",
   );
-  assert.match(guard({ name: "mcp__windows__Click" }) ?? "", /Computer Use is switched off/u);
+  assert.match(guard({ name: "mcp__windows__Click", agent }) ?? "", /Computer Use is switched off/u);
+  assert.match(
+    guard({ name: "mcp__windows__Click" }) ?? "",
+    /switched off for this session/u,
+    "a call with no session behind it fails closed instead of inheriting someone else's grant",
+  );
   assert.equal(guard({ name: "bash" }), undefined, "unrelated tools keep working");
 
   // Flip the switch the way the pill does: the reveal entry appears, the
   // eighteen schemas still do not, and dispatch refuses until they are revealed.
   const post = fakeResponse();
-  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), post);
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true,"sessionId":"gate"}'), post);
   assert.equal(post.status, 200);
 
   assert.deepEqual(
@@ -515,8 +552,184 @@ test("the Computer Use switch truly hides the bridged tools and refuses them", a
     ["mcp__windows__Screenshot", "mcp__windows__Click"],
     "an enabled desktop offers the reveal entry instead of the whole table, on the very next request",
   );
-  assert.match(guard({ name: "mcp__windows__Click" }) ?? "", /hidden to save context/u);
-  assert.equal(guard({ name: "bash" }), undefined, "unrelated tools keep working");
+  assert.match(guard({ name: "mcp__windows__Click", agent }) ?? "", /hidden to save context/u);
+  assert.equal(guard({ name: "bash", agent }), undefined, "unrelated tools keep working");
+});
+
+/**
+ * The harness the per-session tests share: fake agents with their own tool
+ * scopes, a catalog that includes the reveal entry, and the routes the pill
+ * talks to.
+ * @param tag - cache-busting tag, so every test gets a fresh module instance.
+ * @param options.sessions - optional session ids → live sessions, exposed as the
+ *   host's `sessions` service so the plugin can walk a subagent's lineage.
+ */
+async function sessionHarness(tag, options = {}) {
+  const home = mkdtempSync(join(tmpdir(), `dsh-windows-mcp-${tag}-`));
+  process.env.DSH_HOME = home;
+  const fresh = await import(`../lib/index.js?${tag}=${Date.now()}`);
+
+  const routes = new Map();
+  const events = new Map();
+  const restricted = new Map();
+  const state = { guard: null };
+  const sessions = options.sessions ?? null;
+  const catalog = [["mcp__windows__Screenshot", {}], ["mcp__windows__Click", {}], ["windows_desktop", {}], ["bash", {}]];
+  const tools = {
+    schemas: () => catalog,
+    register() { return () => {}; },
+    guard(candidate) { state.guard = candidate; return () => {}; },
+  };
+  const agentFor = (id, header = { id }) => ({
+    id,
+    session: { id, header },
+    ctx: {
+      get: (key) => (key === "tools" ? {
+        schemas: () => tools.schemas(),
+        restrict(filter) {
+          restricted.set(id, filter.deny ?? []);
+          return () => restricted.delete(id);
+        },
+      } : undefined),
+    },
+  });
+
+  fresh.apply({
+    logger: { warn() {} },
+    get(key) {
+      if (key === "sessions") return sessions === null ? undefined : { get: (id) => sessions.get(id) };
+      if (key === "tools") return tools;
+      return undefined;
+    },
+    on(event, listener) { events.set(event, listener); },
+    inject(services, callback) {
+      if (services.includes("webServer")) {
+        callback({
+          webServer: { register(candidate) { routes.set(candidate.path, candidate); return () => {}; } },
+          get: (key) => (key === "tools" ? tools : undefined),
+        });
+        return;
+      }
+      callback({ tools });
+    },
+  });
+
+  const route = routes.get("/dsh-windows-mcp/state");
+  assert.ok(route, "the state route must be registered");
+  const read = (sessionId) => {
+    const response = fakeResponse();
+    route.handler({ method: "GET", url: `/dsh-windows-mcp/state?sessionId=${encodeURIComponent(sessionId)}` }, response);
+    assert.equal(response.status, 200);
+    return JSON.parse(response.body);
+  };
+  const write = (sessionId, enabled) => {
+    const response = fakeResponse();
+    route.handler(fakeRequest("POST", JSON.stringify({ enabled, sessionId })), response);
+    assert.equal(response.status, 200, response.body);
+    return JSON.parse(response.body);
+  };
+  const created = (agent) => events.get("agent/created")({ agent, source: "user" });
+
+  return { home, fresh, routes, events, restricted, tools, agentFor, read, write, created, state };
+}
+
+test("the Computer Use switch belongs to one conversation, not to the host", async () => {
+  // One host-wide flag meant the pill in one window silently moved every other
+  // window: a grant handed the desktop to sessions that never asked for it, and
+  // a revocation blinded a session in the middle of a task.
+  const harness = await sessionHarness("sessions");
+  const { read, write, created, restricted, state } = harness;
+  const alice = harness.agentFor("alice");
+  const bob = harness.agentFor("bob");
+
+  assert.equal(read("alice").enabled, false, "every conversation starts blind");
+  assert.equal(read("bob").enabled, false);
+  assert.equal(read("alice").scope, "session", "the route states its scope instead of implying a global switch");
+
+  write("alice", true);
+  assert.equal(read("alice").enabled, true);
+  assert.equal(read("bob").enabled, false, "a grant in one conversation never reaches another");
+
+  created(alice);
+  created(bob);
+  assert.deepEqual(
+    restricted.get("alice"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click"],
+    "the granted session offers the reveal entry instead of the whole table",
+  );
+  assert.deepEqual(
+    restricted.get("bob"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop"],
+    "the ungranted session has nothing to offer, not even the entry",
+  );
+  assert.match(state.guard({ name: "mcp__windows__Click", agent: bob }) ?? "", /switched off for this session/u);
+  assert.match(state.guard({ name: "mcp__windows__Click", agent: alice }) ?? "", /hidden to save context/u);
+
+  // Revoking one side must not disarm the other. This is the case the old flag
+  // got wrong while two windows were working at the same time.
+  write("alice", false);
+  write("bob", true);
+  assert.equal(read("alice").enabled, false);
+  assert.equal(read("bob").enabled, true, "the other conversation keeps the grant it was given");
+  assert.deepEqual(
+    [...restricted.get("alice")].sort(),
+    ["mcp__windows__Click", "mcp__windows__Screenshot", "windows_desktop"],
+    "the revoked session goes dark on its own, without waiting for a step",
+  );
+  assert.deepEqual(
+    [...restricted.get("bob")].sort(),
+    ["mcp__windows__Click", "mcp__windows__Screenshot"],
+    "the session that still holds the grant keeps its tools",
+  );
+});
+
+test("a subagent inherits its parent's grant, a forked conversation does not", async () => {
+  // The host puts a child session's lineage in its header: a subagent names the
+  // conversation that spawned it, a forked or resumed chat names the session it
+  // branched from but nobody is delegating on its behalf.
+  const sessions = new Map([
+    ["parent", { id: "parent", header: { id: "parent" } }],
+    ["child", { id: "child", header: { id: "child", origin: "subagent", parentSession: "parent" } }],
+    ["fork", { id: "fork", header: { id: "fork", parentSession: "parent" } }],
+  ]);
+  const harness = await sessionHarness("lineage", { sessions });
+  const { read, write, created, restricted, state } = harness;
+
+  const parent = harness.agentFor("parent");
+  const child = harness.agentFor("child", sessions.get("child").header);
+  const fork = harness.agentFor("fork", sessions.get("fork").header);
+
+  write("parent", true);
+  created(parent);
+  created(child);
+  created(fork);
+
+  assert.deepEqual(
+    restricted.get("parent"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click"],
+    "the granted session holds the desktop",
+  );
+  assert.deepEqual(
+    restricted.get("child"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click"],
+    "a subagent works on behalf of its parent's conversation, so it inherits the grant",
+  );
+  assert.deepEqual(
+    restricted.get("fork"),
+    ["mcp__windows__Screenshot", "mcp__windows__Click", "windows_desktop"],
+    "a forked chat is a new conversation a human drives: it starts blind",
+  );
+  assert.match(state.guard({ name: "mcp__windows__Click", agent: fork }) ?? "", /switched off for this session/u);
+
+  // The nearest explicit decision wins, so a subagent can revoke what it
+  // inherited without touching the parent's switch.
+  write("child", false);
+  assert.deepEqual(
+    [...restricted.get("child")].sort(),
+    ["mcp__windows__Click", "mcp__windows__Screenshot", "windows_desktop"],
+    "an explicit revocation on the child overrides the inherited grant",
+  );
+  assert.equal(read("parent").enabled, true, "the parent's own switch is untouched");
 });
 
 test("the tool gate hands the step waterfall back and never recurses", async () => {
@@ -600,7 +813,7 @@ test("the tool gate hands the step waterfall back and never recurses", async () 
   // Enabling the switch relaxes the restriction; the old handle must be
   // released instead of stacking another deny mask on the agent scope.
   const enabled = fakeResponse();
-  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true}'), enabled);
+  routes.get("/dsh-windows-mcp/state").handler(fakeRequest("POST", '{"enabled":true,"sessionId":"waterfall"}'), enabled);
   assert.equal(enabled.status, 200);
   assert.equal(disposed, 1, "the previous restriction is released");
   assert.equal(restrictCalls, 2, "the relaxed decision registers exactly one new layer");
@@ -750,6 +963,36 @@ test("the pill re-reads the host flag instead of freezing its first render", () 
   assert.ok(clientSource.includes("busyRef.current = false;"), "every settle path clears the in-flight flag");
 });
 
+test("the pill asks about its own session, never about the host", async () => {
+  // The slot hands every session-scoped entry the conversation it is drawn in.
+  // The pill has to use it in both directions: reading one conversation's grant
+  // and writing that same conversation back.
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (url, init) => {
+    calls.push({ url: String(url), method: (init && init.method) || "GET", body: init && init.body });
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ enabled: false, bridged: 2, scope: "session" }) });
+  };
+  try {
+    const { exportsObject } = loadClientBundle();
+    const mounted = mountPill(exportsObject);
+    assert.equal(typeof mounted.pill.props.onClick, "function");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    ["/dsh-windows-mcp/state?sessionId=session-1"],
+    "the read names the conversation the cell is drawn in",
+  );
+  assert.match(
+    clientSource,
+    /JSON\.stringify\(\{ enabled: next, sessionId: sessionId \}\)/u,
+    "the write names that same conversation, so the host never has to guess",
+  );
+});
+
 test("the pill is an accessible switch", () => {
   const { exportsObject } = loadClientBundle();
   const registrations = [];
@@ -796,8 +1039,8 @@ test("the pill and its status copy are Chinese when the host prefers it", () => 
   const tooltip = exportsObject.__internals.tooltipFor;
   assert.ok(tooltip({ phase: "ready", enabled: false, bridged: 0, busy: false, error: null }).includes("AI 未获得控制权"));
   assert.ok(
-    tooltip({ phase: "ready", enabled: true, bridged: 3, busy: false, error: null }).includes("AI 正在控制这台电脑 · 3 个桌面工具已注册"),
-    "the registered tool count is interpolated into the Chinese sentence",
+    tooltip({ phase: "ready", enabled: true, bridged: 3, busy: false, error: null }).includes("AI 正在控制这台电脑 · 本会话 3 个桌面工具已注册"),
+    "the registered tool count is interpolated into the Chinese sentence, scoped to this session",
   );
   const unreachable = tooltip({ phase: "error", enabled: false, bridged: 0, busy: false, error: "boom" });
   assert.ok(unreachable.includes("无法连接宿主（boom）"));
@@ -826,8 +1069,8 @@ test("the tooltip carries the state and the cost, not a capability list", () => 
 
   const on = tooltip({ ...view, enabled: true, bridged: 18 });
   assert.deepEqual(on.split("\n"), [
-    "AI 正在控制这台电脑 · 18 个桌面工具已注册",
-    "关闭后，这些工具会对模型不可见，调用会被拒绝。",
+    "AI 正在控制这台电脑 · 本会话 18 个桌面工具已注册",
+    "关闭后，本会话的桌面工具会对模型不可见，调用会被拒绝。",
   ], "on is the state plus what turning it off would cost");
 
   const empty = tooltip({ ...view, enabled: true, bridged: 0 });
