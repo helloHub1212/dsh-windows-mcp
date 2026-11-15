@@ -11,9 +11,9 @@
 
 [![CI](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/releases)
-[![stars](https://img.shields.io/github/stars/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/stargazers)
 [![issues](https://img.shields.io/github/issues/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/issues)
 [![last commit](https://img.shields.io/github/last-commit/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/commits/main)
+[![stars](https://img.shields.io/github/stars/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/stargazers)
 
 **Windows desktop automation for [DeepSeek Harness](https://github.com/sandbaseai/deepseek-harness-handbook)** — lets the DSH agent see your screen and drive your PC.
 
