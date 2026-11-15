@@ -11,9 +11,9 @@
 
 [![CI](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/releases)
-[![stars](https://img.shields.io/github/stars/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/stargazers)
 [![issues](https://img.shields.io/github/issues/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/issues)
 [![last commit](https://img.shields.io/github/last-commit/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/commits/main)
+[![stars](https://img.shields.io/github/stars/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/stargazers)
 
 **给 [DeepSeek Harness](https://github.com/sandbaseai/deepseek-harness-handbook) 接上 Windows 桌面自动化** —— 让 DSH 的 agent 能"看见"你的屏幕并操作你的电脑。
 
