@@ -3,7 +3,17 @@
 [English](https://github.com/helloHub1212/dsh-windows-mcp/blob/main/README.md) · **中文**
 
 [![npm version](https://img.shields.io/npm/v/dsh-windows-mcp.svg)](https://www.npmjs.com/package/dsh-windows-mcp)
+[![npm downloads](https://img.shields.io/npm/dw/dsh-windows-mcp.svg)](https://www.npmjs.com/package/dsh-windows-mcp)
+[![license](https://img.shields.io/npm/l/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/dsh-windows-mcp.svg)](https://nodejs.org)
+[![DeepSeek Harness](https://img.shields.io/badge/DSH-plugin-4D6BFE)](https://github.com/sandbaseai/deepseek-harness-handbook)
+[![platform](https://img.shields.io/badge/platform-Windows-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+
 [![CI](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/helloHub1212/dsh-windows-mcp/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/releases)
+[![stars](https://img.shields.io/github/stars/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/stargazers)
+[![issues](https://img.shields.io/github/issues/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/issues)
+[![last commit](https://img.shields.io/github/last-commit/helloHub1212/dsh-windows-mcp.svg)](https://github.com/helloHub1212/dsh-windows-mcp/commits/main)
 
 **给 [DeepSeek Harness](https://github.com/sandbaseai/deepseek-harness-handbook) 接上 Windows 桌面自动化** —— 让 DSH 的 agent 能"看见"你的屏幕并操作你的电脑。
 
