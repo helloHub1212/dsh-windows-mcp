@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A **Featured plugins** tab on the Plugins page, via the community
+  [dsh-featured](https://github.com/skillpie/dsh-plugins/tree/main/dsh-plugins-plugin)
+  integration: a lightweight entry that recommends community-featured plugins and
+  installs the full `dsh-featured` plugin in one click (the full version takes
+  over the tab once installed; the inline entry yields automatically so the tab
+  never doubles). The integration provides the entry only — being listed in the
+  featured catalog is decided by skillpie.cn's curation process.
+
 ## [0.2.11] - 2026-11-15
 
 ### Changed

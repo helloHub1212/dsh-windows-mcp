@@ -142,6 +142,34 @@ test("apply never throws, whatever the host context looks like", () => {
   }
 });
 
+test("featured-plugins integration never breaks apply() and stays wired", () => {
+  // The host half inlines the dsh-featured integration module; apply() must
+  // survive a context that lets it become the featured "owner" (effect/provide
+  // available), and the wiring must stay in place on both halves.
+  const services = new Map();
+  const effects = [];
+  apply({
+    logger: { warn() {} },
+    get: (key) => services.get(key),
+    provide: (key, value) => {
+      services.set(key, value);
+      return () => services.delete(key);
+    },
+    effect: (callback) => {
+      effects.push(callback);
+      return callback();
+    },
+    inject(_services, callback) {
+      callback({
+        tools: { register() { return () => {}; } },
+        webServer: { register() { return () => {}; } },
+      });
+    },
+  });
+  assert.ok(clientSource.includes("window.__DSH_FEATURED_INIT__(ctx)"), "the client half must call the featured init");
+  assert.ok(clientSource.includes(">>> dsh-featured inline"), "the client half must inline the featured module");
+});
+
 test("default export exposes name and apply", () => {
   assert.equal(plugin.name, "dsh-windows-mcp");
   assert.equal(typeof plugin.apply, "function");
