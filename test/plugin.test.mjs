@@ -170,6 +170,40 @@ test("featured-plugins integration never breaks apply() and stays wired", () => 
   assert.ok(clientSource.includes(">>> dsh-featured inline"), "the client half must inline the featured module");
 });
 
+test("the Featured tab installs the full plugin only after its button is pressed", () => {
+  // Opening the tab used to start an install on mount. A tab the user merely
+  // looks at must never install a package from the registry.
+  const { window } = loadClientBundle();
+  const registrations = [];
+  const ctx = {
+    effect(callback) {
+      const dispose = callback();
+      return typeof dispose === "function" ? dispose : () => {};
+    },
+    locale: {
+      register() { return () => {}; },
+      bind() { return (key) => key; },
+    },
+    slots: {
+      inject(_name, callback) { callback(); },
+      register(meta, component) { registrations.push({ meta, component }); return () => {}; },
+    },
+  };
+  assert.equal(typeof window.__DSH_FEATURED_INIT__, "function");
+  window.__DSH_FEATURED_INIT__(ctx);
+  const registration = registrations.find((entry) => entry.meta.name === "plugins.tab");
+  assert.ok(registration, "the featured tab must register into plugins.tab");
+
+  const installs = [];
+  const element = registration.component({ install: (input) => installs.push(input) });
+  assert.deepEqual(installs, [], "mounting the tab must not install anything");
+  const button = element.children.find((child) => child.type === "button");
+  assert.ok(button, "the tab must render an install button");
+  button.props.onClick();
+  assert.equal(installs.length, 1, "pressing the button installs the full plugin");
+  assert.equal(installs[0].spec, "dsh-featured");
+});
+
 test("default export exposes name and apply", () => {
   assert.equal(plugin.name, "dsh-windows-mcp");
   assert.equal(typeof plugin.apply, "function");
@@ -990,7 +1024,7 @@ function loadClientBundle(language = "en-US") {
     if (name === "react") return reactStub;
     throw new Error(`unexpected require: ${name}`);
   });
-  return { spec, exportsObject, elements };
+  return { spec, exportsObject, elements, window: windowStub };
 }
 
 /** Register the client bundle against a fake context and render the pill. */
