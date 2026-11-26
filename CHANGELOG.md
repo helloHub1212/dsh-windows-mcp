@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.13] - 2026-11-26
+
+### Fixed
+
+- **Disabling the plugin releases its routes.** The six HTTP routes are now tied
+  to the plugin lifecycle, so a disabled plugin stops answering immediately and
+  enabling it again registers them normally instead of failing with a duplicate
+  route until the host restarts.
+- **A managed update no longer collides with the bridge it is running.** Each
+  version now keeps its console script inside its own tool directory instead of
+  the shared `~/.local/bin`, so installing an update writes a new executable and
+  never touches the file the running bridge holds open. Existing installations
+  keep resolving their `Scripts/windows-mcp.exe`.
+
 ## [0.2.12] - 2026-11-23
 
 ### Added
