@@ -1742,3 +1742,54 @@ function fakeRequest(method, body) {
   };
   return request;
 }
+
+test("the host releases its routes when the plugin fiber is disposed", async () => {
+  const home = mkdtempSync(join(tmpdir(), "dsh-windows-mcp-route-dispose-"));
+  process.env.DSH_HOME = home;
+  const fresh = await import(`../lib/index.js?route-dispose=${Date.now()}`);
+
+  const routes = new Map();
+  const disposers = [];
+  const tools = { register() { return () => {}; }, guard() { return () => {}; }, schemas: () => [] };
+  const applyWith = () => fresh.apply({
+    logger: { warn() {} },
+    on() { return () => {}; },
+    inject(services, callback) {
+      const effect = (run) => {
+        const dispose = run();
+        disposers.push(dispose);
+        return () => {};
+      };
+      if (services.includes("webServer")) {
+        callback({
+          effect,
+          get: (key) => (key === "tools" ? tools : undefined),
+          webServer: {
+            register(route) {
+              if (routes.has(route.path)) throw new Error(`webserver: duplicate exact route "${route.path}"`);
+              routes.set(route.path, route);
+              return () => routes.delete(route.path);
+            },
+          },
+        });
+        return;
+      }
+      callback({ effect, tools });
+    },
+  });
+
+  applyWith();
+  assert.equal(routes.size, 6, "every route is registered once");
+
+  // Disabling a Cordis plugin disposes its fiber, which runs every effect
+  // disposer. The web server table must empty with it: a disposed plugin that
+  // keeps answering is both a stale-handler bug and a reload deadlock.
+  for (const dispose of disposers) {
+    if (typeof dispose === "function") dispose();
+  }
+  assert.equal(routes.size, 0, "a disposed plugin leaves no route behind");
+
+  applyWith();
+  assert.equal(routes.size, 6, "enabling the plugin again registers the same paths");
+  assert.ok(routes.has("/dsh-windows-mcp/state"));
+});
